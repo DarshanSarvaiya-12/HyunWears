@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Why we use this: Grants Internet access so the app can load T-shirt images and connect to Firebase later. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Why we use this: Defines the app name "HyunWears" and sets a clean Light Mode system theme. -->
+    <application
+        android:allowBackup="true"
+        android:label="HyunWears"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!-- Why we use this: Tells Android to launch MainActivity.kt first when a user taps the HyunWears app icon. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
