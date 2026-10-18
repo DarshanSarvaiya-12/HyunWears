@@ -1,0 +1,19 @@
+# Why we use this: Instructs Codemagic's cloud server on how to build our HyunWears APK.
+workflows:
+  hyunwears-debug-apk:
+    name: Build HyunWears Test APK
+    max_build_duration: 30
+    # Why we use this: linux_x2 is the fast free-tier cloud machine for Android builds.
+    instance_type: linux_x2
+    environment:
+      java: 17
+    scripts:
+      - name: Generate Gradle Wrapper & Build Debug APK
+        script: |
+          # Why we use this: Generates the missing Gradle wrapper files in the cloud, then compiles our code into an installable APK.
+          gradle wrapper --gradle-version 8.13
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+    artifacts:
+      # Why we use this: Grabs the finished .apk file so you can download it to your phone.
+      - app/build/outputs/apk/debug/*.apk
