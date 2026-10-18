@@ -1,17 +1,18 @@
-# Why we use this: Instructs Codemagic's cloud server on how to build our HyunWears APK.
+# Why we use this: Instructs Codemagic's free-tier Apple Silicon server on how to build our HyunWears APK.
 workflows:
   hyunwears-debug-apk:
     name: Build HyunWears Test APK
     max_build_duration: 30
-    # Why we use this: linux_x2 is the fast free-tier cloud machine for Android builds.
-    instance_type: linux_x2
+    # Why we use this: mac_mini_m2 is the exact machine included in Codemagic's 500-minute Free Plan.
+    instance_type: mac_mini_m2
     environment:
       java: 17
     scripts:
       - name: Generate Gradle Wrapper & Build Debug APK
         script: |
-          # Why we use this: Generates the missing Gradle wrapper files in the cloud, then compiles our code into an installable APK.
-          gradle wrapper --gradle-version 8.13
+          # Why we use this: Tells Android where the SDK is located on the cloud machine, creates the wrapper, and builds the APK.
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          gradle wrapper --gradle-version 8.11.1
           chmod +x ./gradlew
           ./gradlew assembleDebug
     artifacts:
