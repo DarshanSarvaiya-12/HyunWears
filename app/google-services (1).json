@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "496976230753",
+    "project_id": "hyunwears-1af72",
+    "storage_bucket": "hyunwears-1af72.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:496976230753:android:b862079ba722ea17276d20",
+        "android_client_info": {
+          "package_name": "com.picell.hyunwears"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAEQbZWFHLWYsnJqTe2qLldf82Y9aQOuv0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
