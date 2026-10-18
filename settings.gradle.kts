@@ -1,5 +1,4 @@
 // Why we use this: Configures where Gradle downloads Android plugins and libraries from.
-
 pluginManagement {
     repositories {
         google()
