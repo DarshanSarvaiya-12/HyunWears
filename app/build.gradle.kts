@@ -45,8 +45,9 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-compose:3.1.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.1.0")
 
-    // Why we use this: Connects HyunWears to Firebase Cloud Firestore to fetch live T-shirts and save orders.
+    // Why we use this: Connects HyunWears to Firebase Firestore (database) and Firebase Storage (T-shirt images).
     val firebaseBom = platform("com.google.firebase:firebase-bom:33.9.0")
     implementation(firebaseBom)
     implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-storage")
 }
