@@ -30,21 +30,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.google.firebase.firestore.FirebaseFirestore
 
 // Why we use this: Blueprint for each T-shirt holding only primary data (ID, Name, Price, and Image URL).
 data class TShirt(
-    val id: String,
-    val name: String,
-    val price: Int,
-    val imageUrl: String
+    val id: String = "",
+    val name: String = "",
+    val price: Int = 0,
+    val imageUrl: String = ""
 )
 
-// Why we use this: Main entry point that boots up our Jetpack Compose frontend on the user's phone screen.
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            // Why we use this: Forces a clean, modern Light Mode color scheme across the entire app.
+            // Why we use this: Enforces a clean Light Mode color scheme across HyunWears.
             MaterialTheme(
                 colorScheme = lightColorScheme(
                     background = Color(0xFFFAFAFA),
@@ -62,40 +62,79 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun HyunWearsApp() {
-    // Why we use this: FontFamily.SansSerif maps to Android's native Roboto font; Serif maps to Georgia-style serif font.
     val robotoFont = FontFamily.SansSerif
     val georgiaFont = FontFamily.Serif
+    val context = LocalContext.current
 
-    // Why we use this: Reactive state variables to store the user's search text, selected T-shirts, and cart count.
+    // Why we use this: Initializes our connection to Firebase Cloud Firestore.
+    val db = remember { FirebaseFirestore.getInstance() }
+
+    // Why we use this: Reactive state lists for live Firebase T-shirts, search text, cart count, and loading state.
+    val catalog = remember { mutableStateListOf<TShirt>() }
+    var isLoading by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var cartCount by remember { mutableIntStateOf(0) }
     val selectedIds = remember { mutableStateListOf<String>() }
-    val context = LocalContext.current
 
-    // Why we use this: Sample T-shirt catalog for Phase-1 frontend testing (will be replaced by Firebase in Step 2).
-    val catalog = remember {
-        listOf(
-            TShirt("1", "Oversized Noir Tee", 500, "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800"),
-            TShirt("2", "Classic Pure White Tee", 500, "https://images.unsplash.com/photo-1581655353564-df123a1eb820?w=800"),
-            TShirt("3", "Urban Olive Heavy Tee", 650, "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=800"),
-            TShirt("4", "Minimalist Cobalt Tee", 550, "https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=800")
-        )
+    // Why we use this: Listens to the "tshirts" collection in Firebase in real time.
+    // If empty on first launch, it automatically populates 4 starter T-shirts into your Firebase database.
+    DisposableEffect(Unit) {
+        val listener = db.collection("tshirts")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    isLoading = false
+                    Toast.makeText(context, "Firebase error: ${error.message}", Toast.LENGTH_SHORT).show()
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null) {
+                    if (snapshot.isEmpty) {
+                        // Why we use this: Auto-seeds starter T-shirts with compressed images (w=400&q=70) so scrolling doesn't lag.
+                        val starterTees = listOf(
+                            mapOf("name" to "Oversized Noir Tee", "price" to 500, "imageUrl" to "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=400&q=70"),
+                            mapOf("name" to "Classic Pure White Tee", "price" to 500, "imageUrl" to "https://images.unsplash.com/photo-1581655353564-df123a1eb820?w=400&q=70"),
+                            mapOf("name" to "Urban Olive Heavy Tee", "price" to 650, "imageUrl" to "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=400&q=70"),
+                            mapOf("name" to "Minimalist Cobalt Tee", "price" to 550, "imageUrl" to "https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=400&q=70")
+                        )
+                        starterTees.forEach { tee ->
+                            db.collection("tshirts").add(tee)
+                        }
+                    } else {
+                        catalog.clear()
+                        for (doc in snapshot.documents) {
+                            val name = doc.getString("name") ?: "HyunWears Tee"
+                            val price = doc.getLong("price")?.toInt() ?: 500
+                            val imageUrl = doc.getString("imageUrl") ?: ""
+                            catalog.add(TShirt(id = doc.id, name = name, price = price, imageUrl = imageUrl))
+                        }
+                        isLoading = false
+                    }
+                }
+            }
+
+        // Why we use this: Listens to the "cart_orders" collection in Firebase so the top-right Cart count stays synced.
+        val cartListener = db.collection("cart_orders")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    cartCount = snapshot.size()
+                }
+            }
+
+        onDispose {
+            listener.remove()
+            cartListener.remove()
+        }
     }
 
-    // Why we use this: Filters the T-shirt list in real time when the user types in the RGB search bar.
-    val filteredList = catalog.filter {
-        it.name.contains(searchQuery, ignoreCase = true)
+    // Why we use this: Filters the live Firebase T-shirts based on the user's search query.
+    val filteredList = remember(catalog.size, searchQuery) {
+        catalog.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
 
-    // Why we use this: Scaffold structures the screen cleanly with a fixed Top Header and scrollable catalog.
     Scaffold(
         containerColor = Color(0xFFFAFAFA),
         topBar = {
-            // Why we use this: Top Header showing "HyunWears" at upper-left in Georgia font and Cart button at upper-right.
-            Surface(
-                color = Color.White,
-                shadowElevation = 2.dp
-            ) {
+            Surface(color = Color.White, shadowElevation = 2.dp) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -112,10 +151,9 @@ fun HyunWearsApp() {
                         color = Color(0xFF111111)
                     )
 
-                    // Why we use this: Upper-right Cart button with curved corners showing live item count.
                     OutlinedButton(
                         onClick = {
-                            Toast.makeText(context, "Cart items: $cartCount", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Live Firebase Cart items: $cartCount", Toast.LENGTH_SHORT).show()
                         },
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
@@ -140,7 +178,6 @@ fun HyunWearsApp() {
             }
         }
     ) { innerPadding ->
-        // Why we use this: Smooth vertical scrolling list that holds the Search Bar, T-shirt Cards, and Footer.
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -150,7 +187,6 @@ fun HyunWearsApp() {
         ) {
             item {
                 Spacer(modifier = Modifier.height(4.dp))
-                // Why we use this: Renders the Search Bar with a thin RGB gradient border.
                 RgbSearchBar(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
@@ -158,27 +194,52 @@ fun HyunWearsApp() {
                 )
             }
 
-            // Why we use this: Loops through each T-shirt and displays its modern card.
-            items(filteredList, key = { it.id }) { tshirt ->
-                val isSelected = selectedIds.contains(tshirt.id)
-                TShirtCard(
-                    tshirt = tshirt,
-                    isSelected = isSelected,
-                    robotoFont = robotoFont,
-                    onViewClick = {
-                        Toast.makeText(context, "Viewing ${tshirt.name}", Toast.LENGTH_SHORT).show()
-                    },
-                    onBuyClick = {
-                        cartCount++
-                        Toast.makeText(context, "Added ${tshirt.name} to Cart", Toast.LENGTH_SHORT).show()
-                    },
-                    onSelectClick = {
-                        if (isSelected) selectedIds.remove(tshirt.id) else selectedIds.add(tshirt.id)
+            if (isLoading) {
+                item {
+                    // Why we use this: Shows a clean loading spinner while fetching live T-shirts from Firebase.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Color(0xFF111111))
                     }
-                )
+                }
+            } else {
+                items(filteredList, key = { it.id }) { tshirt ->
+                    val isSelected = selectedIds.contains(tshirt.id)
+                    TShirtCard(
+                        tshirt = tshirt,
+                        isSelected = isSelected,
+                        robotoFont = robotoFont,
+                        onViewClick = {
+                            Toast.makeText(context, "Viewing ${tshirt.name}", Toast.LENGTH_SHORT).show()
+                        },
+                        onBuyClick = {
+                            // Why we use this: Saves the purchased T-shirt directly into Firebase Cloud Firestore!
+                            val orderData = mapOf(
+                                "tshirtId" to tshirt.id,
+                                "name" to tshirt.name,
+                                "price" to tshirt.price,
+                                "timestamp" to System.currentTimeMillis()
+                            )
+                            db.collection("cart_orders")
+                                .add(orderData)
+                                .addOnSuccessListener {
+                                    Toast.makeText(context, "Saved ${tshirt.name} to Firebase Cart!", Toast.LENGTH_SHORT).show()
+                                }
+                                .addOnFailureListener { e ->
+                                    Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                        },
+                        onSelectClick = {
+                            if (isSelected) selectedIds.remove(tshirt.id) else selectedIds.add(tshirt.id)
+                        }
+                    )
+                }
             }
 
-            // Why we use this: Displays the required footer at the bottom of the catalog.
             item {
                 FooterSection(robotoFont = robotoFont)
             }
@@ -192,12 +253,12 @@ fun RgbSearchBar(
     onQueryChange: (String) -> Unit,
     robotoFont: FontFamily
 ) {
-    // Why we use this: Creates the Red-Green-Blue (RGB) color gradient for the thin border.
-    val rgbGradient = Brush.linearGradient(
-        colors = listOf(Color(0xFFFF0000), Color(0xFF00FF00), Color(0xFF0000FF))
-    )
+    val rgbGradient = remember {
+        Brush.linearGradient(
+            colors = listOf(Color(0xFFFF0000), Color(0xFF00FF00), Color(0xFF0000FF))
+        )
+    }
 
-    // Why we use this: Box container styled with the thin 1.5dp RGB border and curved corners.
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -248,7 +309,6 @@ fun TShirtCard(
     onBuyClick: () -> Unit,
     onSelectClick: () -> Unit
 ) {
-    // Why we use this: Clean white card container with soft elevation and rounded corners for each T-shirt.
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -257,7 +317,6 @@ fun TShirtCard(
         border = BorderStroke(1.dp, Color(0xFFEEEEEE))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Why we use this: Displays the T-shirt photograph at the top of the card.
             AsyncImage(
                 model = tshirt.imageUrl,
                 contentDescription = tshirt.name,
@@ -271,7 +330,6 @@ fun TShirtCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Why we use this: Shows T-shirt name on the left and primary price on the right (no secondary discount texts).
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -295,12 +353,10 @@ fun TShirtCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Why we use this: Bottom row containing View, Buy, and Select buttons in curved-corner rectangles.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // View Button
                 OutlinedButton(
                     onClick = onViewClick,
                     modifier = Modifier.weight(1f),
@@ -316,7 +372,6 @@ fun TShirtCard(
                     )
                 }
 
-                // Buy Button
                 Button(
                     onClick = onBuyClick,
                     modifier = Modifier.weight(1f),
@@ -332,7 +387,6 @@ fun TShirtCard(
                     )
                 }
 
-                // Select Button
                 OutlinedButton(
                     onClick = onSelectClick,
                     modifier = Modifier.weight(1f),
@@ -357,7 +411,6 @@ fun TShirtCard(
 
 @Composable
 fun FooterSection(robotoFont: FontFamily) {
-    // Why we use this: Displays "HyunWears by PiCell Company." cleanly centered at the bottom of the app.
     Box(
         modifier = Modifier
             .fillMaxWidth()
