@@ -31,13 +31,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
 
-// Why we use this: Blueprint for each T-shirt holding only primary data (ID, Name, Price, and Image URL).
+// Why we use this: Blueprint for each T-shirt matching our capitalized Firebase fields (Name, Price, ImageUrl).
 data class TShirt(
     val id: String = "",
-    val name: String = "",
-    val price: Int = 0,
-    val imageUrl: String = ""
+    val Name: String = "",
+    val Price: Int = 0,
+    val ImageUrl: String = ""
 )
 
 class MainActivity : ComponentActivity() {
@@ -66,8 +67,9 @@ fun HyunWearsApp() {
     val georgiaFont = FontFamily.Serif
     val context = LocalContext.current
 
-    // Why we use this: Initializes our connection to Firebase Cloud Firestore.
+    // Why we use this: Initializes our connection to Firebase Cloud Firestore and Firebase Storage.
     val db = remember { FirebaseFirestore.getInstance() }
+    val storage = remember { FirebaseStorage.getInstance() }
 
     // Why we use this: Reactive state lists for live Firebase T-shirts, search text, cart count, and loading state.
     val catalog = remember { mutableStateListOf<TShirt>() }
@@ -76,10 +78,10 @@ fun HyunWearsApp() {
     var cartCount by remember { mutableIntStateOf(0) }
     val selectedIds = remember { mutableStateListOf<String>() }
 
-    // Why we use this: Listens to the "tshirts" collection in Firebase in real time.
-    // If empty on first launch, it automatically populates 4 starter T-shirts into your Firebase database.
+    // Why we use this: Listens to the "T-shirts" collection in Firebase Firestore in real time.
+    // If "T-shirts" is empty on first launch, it creates starter documents with capitalized Name, Price, and ImageUrl fields.
     DisposableEffect(Unit) {
-        val listener = db.collection("tshirts")
+        val listener = db.collection("T-shirts")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     isLoading = false
@@ -89,31 +91,38 @@ fun HyunWearsApp() {
 
                 if (snapshot != null) {
                     if (snapshot.isEmpty) {
-                        // Why we use this: Auto-seeds starter T-shirts with compressed images (w=400&q=70) so scrolling doesn't lag.
+                        // Why we use this: Seeds initial structure in "T-shirts" using Name, Price, and ImageUrl (ready for your Firebase Storage paths/URLs).
                         val starterTees = listOf(
-                            mapOf("name" to "Oversized Noir Tee", "price" to 500, "imageUrl" to "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=400&q=70"),
-                            mapOf("name" to "Classic Pure White Tee", "price" to 500, "imageUrl" to "https://images.unsplash.com/photo-1581655353564-df123a1eb820?w=400&q=70"),
-                            mapOf("name" to "Urban Olive Heavy Tee", "price" to 650, "imageUrl" to "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=400&q=70"),
-                            mapOf("name" to "Minimalist Cobalt Tee", "price" to 550, "imageUrl" to "https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=400&q=70")
+                            mapOf("Name" to "Oversized Noir Tee", "Price" to 500, "ImageUrl" to "T-shirts/tee1.jpg"),
+                            mapOf("Name" to "Classic Pure White Tee", "Price" to 500, "ImageUrl" to "T-shirts/tee2.jpg"),
+                            mapOf("Name" to "Urban Olive Heavy Tee", "Price" to 650, "ImageUrl" to "T-shirts/tee3.jpg"),
+                            mapOf("Name" to "Minimalist Cobalt Tee", "Price" to 550, "ImageUrl" to "T-shirts/tee4.jpg")
                         )
                         starterTees.forEach { tee ->
-                            db.collection("tshirts").add(tee)
+                            db.collection("T-shirts").add(tee)
                         }
                     } else {
                         catalog.clear()
                         for (doc in snapshot.documents) {
-                            val name = doc.getString("name") ?: "HyunWears Tee"
-                            val price = doc.getLong("price")?.toInt() ?: 500
-                            val imageUrl = doc.getString("imageUrl") ?: ""
-                            catalog.add(TShirt(id = doc.id, name = name, price = price, imageUrl = imageUrl))
+                            val name = doc.getString("Name") ?: "HyunWears Tee"
+                            val price = doc.getLong("Price")?.toInt() ?: 500
+                            val imageUrl = doc.getString("ImageUrl") ?: ""
+                            catalog.add(
+                                TShirt(
+                                    id = doc.id,
+                                    Name = name,
+                                    Price = price,
+                                    ImageUrl = imageUrl
+                                )
+                            )
                         }
                         isLoading = false
                     }
                 }
             }
 
-        // Why we use this: Listens to the "cart_orders" collection in Firebase so the top-right Cart count stays synced.
-        val cartListener = db.collection("cart_orders")
+        // Why we use this: Listens to the "Cart_Orders" collection in Firebase so the top-right Cart count stays synced.
+        val cartListener = db.collection("Cart_Orders")
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot != null) {
                     cartCount = snapshot.size()
@@ -128,7 +137,7 @@ fun HyunWearsApp() {
 
     // Why we use this: Filters the live Firebase T-shirts based on the user's search query.
     val filteredList = remember(catalog.size, searchQuery) {
-        catalog.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        catalog.filter { it.Name.contains(searchQuery, ignoreCase = true) }
     }
 
     Scaffold(
@@ -153,7 +162,7 @@ fun HyunWearsApp() {
 
                     OutlinedButton(
                         onClick = {
-                            Toast.makeText(context, "Live Firebase Cart items: $cartCount", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Cart_Orders items: $cartCount", Toast.LENGTH_SHORT).show()
                         },
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
@@ -196,7 +205,6 @@ fun HyunWearsApp() {
 
             if (isLoading) {
                 item {
-                    // Why we use this: Shows a clean loading spinner while fetching live T-shirts from Firebase.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -211,23 +219,25 @@ fun HyunWearsApp() {
                     val isSelected = selectedIds.contains(tshirt.id)
                     TShirtCard(
                         tshirt = tshirt,
+                        storage = storage,
                         isSelected = isSelected,
                         robotoFont = robotoFont,
                         onViewClick = {
-                            Toast.makeText(context, "Viewing ${tshirt.name}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Viewing ${tshirt.Name}", Toast.LENGTH_SHORT).show()
                         },
                         onBuyClick = {
-                            // Why we use this: Saves the purchased T-shirt directly into Firebase Cloud Firestore!
+                            // Why we use this: Saves the purchased T-shirt into "Cart_Orders" with capitalized field names.
                             val orderData = mapOf(
-                                "tshirtId" to tshirt.id,
-                                "name" to tshirt.name,
-                                "price" to tshirt.price,
-                                "timestamp" to System.currentTimeMillis()
+                                "TshirtId" to tshirt.id,
+                                "Name" to tshirt.Name,
+                                "Price" to tshirt.Price,
+                                "ImageUrl" to tshirt.ImageUrl,
+                                "Timestamp" to System.currentTimeMillis()
                             )
-                            db.collection("cart_orders")
+                            db.collection("Cart_Orders")
                                 .add(orderData)
                                 .addOnSuccessListener {
-                                    Toast.makeText(context, "Saved ${tshirt.name} to Firebase Cart!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Saved ${tshirt.Name} to Cart_Orders!", Toast.LENGTH_SHORT).show()
                                 }
                                 .addOnFailureListener { e ->
                                     Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -303,12 +313,34 @@ fun RgbSearchBar(
 @Composable
 fun TShirtCard(
     tshirt: TShirt,
+    storage: FirebaseStorage,
     isSelected: Boolean,
     robotoFont: FontFamily,
     onViewClick: () -> Unit,
     onBuyClick: () -> Unit,
     onSelectClick: () -> Unit
 ) {
+    // Why we use this: Resolves Firebase Storage paths (e.g., "T-shirts/tee1.jpg" or "gs://...") into a downloadable URL for Coil.
+    var resolvedDownloadUrl by remember(tshirt.ImageUrl) { mutableStateOf("") }
+
+    LaunchedEffect(tshirt.ImageUrl) {
+        val rawUrl = tshirt.ImageUrl.trim()
+        if (rawUrl.isEmpty()) {
+            resolvedDownloadUrl = ""
+        } else if (rawUrl.startsWith("https://") || rawUrl.startsWith("http://")) {
+            // Already a Firebase Storage download URL
+            resolvedDownloadUrl = rawUrl
+        } else if (rawUrl.startsWith("gs://")) {
+            // Convert gs:// Firebase Storage URI to downloadable URL
+            storage.getReferenceFromUrl(rawUrl).downloadUrl
+                .addOnSuccessListener { uri -> resolvedDownloadUrl = uri.toString() }
+        } else {
+            // Convert relative Firebase Storage path (like "T-shirts/tee1.jpg") to downloadable URL
+            storage.reference.child(rawUrl).downloadUrl
+                .addOnSuccessListener { uri -> resolvedDownloadUrl = uri.toString() }
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -317,9 +349,10 @@ fun TShirtCard(
         border = BorderStroke(1.dp, Color(0xFFEEEEEE))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
+            // Why we use this: Displays the T-shirt image fetched directly from Firebase Storage.
             AsyncImage(
-                model = tshirt.imageUrl,
-                contentDescription = tshirt.name,
+                model = resolvedDownloadUrl,
+                contentDescription = tshirt.Name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -336,14 +369,14 @@ fun TShirtCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = tshirt.name,
+                    text = tshirt.Name,
                     fontFamily = robotoFont,
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp,
                     color = Color(0xFF111111)
                 )
                 Text(
-                    text = "${tshirt.price}",
+                    text = "${tshirt.Price}",
                     fontFamily = robotoFont,
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp,
