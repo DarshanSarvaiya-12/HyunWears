@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Why we use this: Grants Internet access so the app can connect to Firebase AFTER the frontend opens. -->
+    <!-- Why we use this: Grants Internet access so the app can connect to Firebase after opening. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
@@ -11,12 +11,23 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
-        <!-- Why we use this: STOPS Firebase from auto-loading before the app opens! Forces Frontend to load first in < 1 second. -->
+        <!-- Why we use this: Stops Firebase from auto-loading before the Opening Animation. -->
         <provider
             android:name="com.google.firebase.provider.FirebaseInitProvider"
             android:authorities="${applicationId}.firebaseinitprovider"
             android:exported="false"
             tools:node="remove" />
+
+        <!-- Why we use this: Stops AndroidX Emoji font scanner from delaying app launch by 1-2 seconds. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                tools:node="remove" />
+        </provider>
 
         <!-- Why we use this: Launches MainActivity immediately when the user taps the HyunWears icon. -->
         <activity
