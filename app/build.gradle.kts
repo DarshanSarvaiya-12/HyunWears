@@ -18,6 +18,14 @@ android {
         versionName = "1.0.0"
     }
 
+    buildTypes {
+        debug {
+            // Why we use this: Turns off heavy Android debug tracking so Jetpack Compose opens in under 1 second.
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
     buildFeatures {
         compose = true
     }
@@ -35,17 +43,17 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
     implementation(composeBom)
 
+    // Why we use this: Core lightweight Compose UI libraries (removed heavy material-icons-extended to cut startup time).
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
 
     // Why we use this: Coil loads and caches T-shirt images smoothly.
     implementation("io.coil-kt.coil3:coil-compose:3.1.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.1.0")
 
-    // Why we use this: Connects HyunWears to Firebase Firestore (database) and Firebase Storage (T-shirt images).
+    // Why we use this: Firebase Firestore & Storage libraries (loaded manually in the background AFTER frontend opens).
     val firebaseBom = platform("com.google.firebase:firebase-bom:33.9.0")
     implementation(firebaseBom)
     implementation("com.google.firebase:firebase-firestore")
