@@ -1,17 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Why we use this: Grants Internet access so the app can load T-shirt images and connect to Firebase later. -->
+    <!-- Why we use this: Grants Internet access so the app can connect to Firebase AFTER the frontend opens. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Why we use this: Defines the app name "HyunWears" and sets a clean Light Mode system theme. -->
     <application
         android:allowBackup="true"
         android:label="HyunWears"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
-        <!-- Why we use this: Tells Android to launch MainActivity.kt first when a user taps the HyunWears app icon. -->
+        <!-- Why we use this: STOPS Firebase from auto-loading before the app opens! Forces Frontend to load first in < 1 second. -->
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider"
+            android:exported="false"
+            tools:node="remove" />
+
+        <!-- Why we use this: Launches MainActivity immediately when the user taps the HyunWears icon. -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
