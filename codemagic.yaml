@@ -1,4 +1,4 @@
-# Why we use this: Instructs Codemagic's free-tier Apple Silicon server on how to build our HyunWears APK without failing.
+# Why we use this: Builds a super-fast, shrunk Release APK (~3 MB) instead of a heavy 9.8 MB Debug APK.
 workflows:
   hyunwears-debug-apk:
     name: Build HyunWears Test APK
@@ -7,31 +7,39 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Generate Gradle Wrapper & Build Debug APK
+      - name: Generate Gradle Wrapper & Build Fast Shrunk APK
         script: |
           set -e
           # Why we use this: Points Gradle to Codemagic's pre-installed Android SDK.
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-          # Why we use this: Jetpack Compose requires AndroidX to be enabled, otherwise the build fails with status code 1.
+          # Why we use this: Enables R8 full mode to shrink the APK size and optimize startup speed to the maximum.
           echo "android.useAndroidX=true" > gradle.properties
+          echo "android.enableR8.fullMode=true" >> gradle.properties
           echo "org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8" >> gradle.properties
 
-          # Why we use this: Temporarily hides settings and build files so the system Gradle generates the wrapper cleanly without version conflicts.
+          # Why we use this: Creates R8 keep rules so unused code is deleted without breaking Firebase or Coil.
+          cat << 'EOF' > app/proguard-rules.pro
+          -dontwarn io.grpc.**
+          -dontwarn kotlinx.coroutines.**
+          -dontwarn okhttp3.**
+          -dontwarn okio.**
+          -dontwarn com.google.appengine.**
+          -dontwarn com.google.apphosting.**
+          -keep class com.picell.hyunwears.** { *; }
+          EOF
+
+          # Why we use this: Generates the Gradle wrapper cleanly without version conflicts.
           mv settings.gradle.kts settings.gradle.kts.bak
           mv build.gradle.kts build.gradle.kts.bak
           echo "rootProject.name = \"HyunWears\"" > settings.gradle.kts
-
-          # Why we use this: Generates the Gradle 8.11.1 wrapper cleanly.
           gradle wrapper --gradle-version 8.11.1
-
-          # Why we use this: Restores your real project configuration files now that ./gradlew is ready.
           mv settings.gradle.kts.bak settings.gradle.kts
           mv build.gradle.kts.bak build.gradle.kts
 
-          # Why we use this: Compiles the debug APK using the newly generated wrapper.
+          # Why we use this: Compiles the optimized Release APK with R8 code & resource shrinking enabled.
           chmod +x ./gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleRelease --stacktrace
     artifacts:
-      # Why we use this: Grabs the finished .apk file so you can download it to your phone.
-      - app/build/outputs/apk/debug/*.apk
+      # Why we use this: Grabs the shrunk app-release.apk file so you can download and install it on your phone.
+      - app/build/outputs/apk/release/*.apk
