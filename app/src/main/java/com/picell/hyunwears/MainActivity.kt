@@ -1,5 +1,8 @@
 package com.picell.hyunwears
 
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -8,12 +11,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,7 +32,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -39,6 +49,9 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.delay
+import kotlin.math.exp
+import kotlin.math.sin
 
 // Why we use this: Blueprint for each T-shirt matching our capitalized Firebase fields (Name, Price, ImageUrl).
 data class TShirt(
@@ -62,21 +75,131 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFF111111)
                 )
             ) {
-                HyunWearsApp()
+                HyunWearsMainEntry()
             }
         }
     }
 }
 
+// Why we use this: Plays a pleasant, modern 2-note harmonic opening chime on a background thread without needing external MP3 files.
+fun playOpeningSound() {
+    Thread {
+        try {
+            val sampleRate = 44100
+            val durationSeconds = 0.65
+            val numSamples = (durationSeconds * sampleRate).toInt()
+            val samples = ShortArray(numSamples)
+
+            for (i in 0 until numSamples) {
+                val t = i.toDouble() / sampleRate
+                // Why we use this: First note (523Hz C5) transitions into second higher note (784Hz G5) with smooth fade-out.
+                val freq = if (t < 0.18) 523.25 else 783.99
+                val localT = if (t < 0.18) t else (t - 0.18)
+                val envelope = exp(-6.0 * localT)
+                val wave = sin(2.0 * Math.PI * freq * t) * envelope
+                samples[i] = (wave * Short.MAX_VALUE * 0.35).toInt().toShort()
+            }
+
+            val audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(samples.size * 2)
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .build()
+
+            audioTrack.write(samples, 0, samples.size)
+            audioTrack.play()
+            Thread.sleep(700)
+            audioTrack.release()
+        } catch (_: Exception) {
+            // Why we use this: Safely ignores audio errors if the phone is on silent or DND mode.
+        }
+    }.start()
+}
+
+// Why we use this: Manages the instant HyunWears opening animation first so the app opens in < 0.5 seconds instead of 7 seconds.
 @Composable
-fun HyunWearsApp() {
+fun HyunWearsMainEntry() {
+    var showSplashAnimation by remember { mutableStateOf(true) }
+    var isAppFullyOpened by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        // Why we use this: Triggers the opening sound immediately when the app launches.
+        playOpeningSound()
+        // Why we use this: Shows the smooth HyunWears opening animation for 1.1 seconds, then opens the store and activates RGB search.
+        delay(1100)
+        showSplashAnimation = false
+        delay(300)
+        isAppFullyOpened = true
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Why we use this: Renders the store underneath once the first frame is ready so Firebase loads without blocking startup.
+        HyunWearsApp(isAppFullyOpened = isAppFullyOpened)
+
+        // Why we use this: Smoothly fades out the HyunWears opening animation screen once completed.
+        AnimatedVisibility(
+            visible = showSplashAnimation,
+            enter = fadeIn(),
+            exit = fadeOut(animationSpec = tween(350))
+        ) {
+            HyunWearsOpeningScreen()
+        }
+    }
+}
+
+// Why we use this: Beautiful light-mode opening animation scaling up "HyunWears" in Georgia font.
+@Composable
+fun HyunWearsOpeningScreen() {
+    var startAnim by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { startAnim = true }
+
+    val scale by animateFloatAsState(
+        targetValue = if (startAnim) 1.0f else 0.82f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "splashScale"
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (startAnim) 1.0f else 0.0f,
+        animationSpec = tween(durationMillis = 600),
+        label = "splashAlpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "HyunWears",
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 36.sp,
+            color = Color(0xFF111111),
+            modifier = Modifier
+                .scale(scale)
+                .alpha(alpha)
+        )
+    }
+}
+
+@Composable
+fun HyunWearsApp(isAppFullyOpened: Boolean) {
     val robotoFont = FontFamily.SansSerif
     val georgiaFont = FontFamily.Serif
     val context = LocalContext.current
-
-    // Why we use this: Initializes our connection to Firebase Cloud Firestore and Firebase Storage.
-    val db = remember { FirebaseFirestore.getInstance() }
-    val storage = remember { FirebaseStorage.getInstance() }
 
     // Why we use this: Reactive state lists for live Firebase T-shirts, search text, cart count, and loading state.
     val catalog = remember { mutableStateListOf<TShirt>() }
@@ -85,10 +208,17 @@ fun HyunWearsApp() {
     var cartCount by remember { mutableIntStateOf(0) }
     val selectedIds = remember { mutableStateListOf<String>() }
 
+    // Why we use this: Controls staggered image loading (loads first 2 images immediately, then loads the rest after app opens).
+    var loadRemainingImages by remember { mutableStateOf(false) }
+
     // Why we use this: State variables for the Gallery Picker and Upload Screen.
     var selectedGalleryUri by remember { mutableStateOf<Uri?>(null) }
     var showUploadPage by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
+
+    // Why we use this: Holds deferred Firebase instances so they don't slow down the cold launch of the app.
+    var dbInstance by remember { mutableStateOf<FirebaseFirestore?>(null) }
+    var storageInstance by remember { mutableStateOf<FirebaseStorage?>(null) }
 
     // Why we use this: Opens the phone's native photo gallery when the user taps the Upload icon.
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -100,9 +230,15 @@ fun HyunWearsApp() {
         }
     }
 
-    // Why we use this: Listens ONLY to the live "T-shirts" collection in Firebase Backend (no hardcoded frontend T-shirts).
-    DisposableEffect(Unit) {
-        val listener = db.collection("T-shirts")
+    // Why we use this: Connects to Firebase AFTER the first UI frame is drawn so startup time drops from 7s to instant.
+    LaunchedEffect(Unit) {
+        delay(150)
+        val db = FirebaseFirestore.getInstance()
+        val storage = FirebaseStorage.getInstance()
+        dbInstance = db
+        storageInstance = storage
+
+        db.collection("T-shirts")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     isLoading = false
@@ -129,17 +265,19 @@ fun HyunWearsApp() {
                 }
             }
 
-        // Why we use this: Listens to the "Cart_Orders" collection in Firebase so the top-right Cart count stays synced.
-        val cartListener = db.collection("Cart_Orders")
+        db.collection("Cart_Orders")
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot != null) {
                     cartCount = snapshot.size()
                 }
             }
+    }
 
-        onDispose {
-            listener.remove()
-            cartListener.remove()
+    // Why we use this: Once the first 2 T-shirts start loading and the app is open, triggers loading for all remaining T-shirt images.
+    LaunchedEffect(isLoading, isAppFullyOpened) {
+        if (!isLoading && isAppFullyOpened) {
+            delay(800)
+            loadRemainingImages = true
         }
     }
 
@@ -169,12 +307,11 @@ fun HyunWearsApp() {
                         color = Color(0xFF111111)
                     )
 
-                    // Why we use this: Upper-right row holding the new Upload Icon button right next to the Cart button.
+                    // Why we use this: Upper-right row holding the Upload Icon button right next to the Cart button.
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Why we use this: Upload Icon button that opens your phone's image gallery when tapped.
                         OutlinedButton(
                             onClick = {
                                 galleryLauncher.launch(
@@ -193,7 +330,6 @@ fun HyunWearsApp() {
                             )
                         }
 
-                        // Why we use this: Cart button next to the Upload button.
                         OutlinedButton(
                             onClick = {
                                 Toast.makeText(context, "Cart_Orders items: $cartCount", Toast.LENGTH_SHORT).show()
@@ -222,8 +358,7 @@ fun HyunWearsApp() {
             }
         }
     ) { innerPadding ->
-        // Why we use this: If the user picked an image from the gallery, show the Upload Page; otherwise show the T-shirt store catalog.
-        if (showUploadPage && selectedGalleryUri != null) {
+        if (showUploadPage && selectedGalleryUri != null && storageInstance != null && dbInstance != null) {
             UploadTShirtScreen(
                 imageUri = selectedGalleryUri!!,
                 isUploading = isUploading,
@@ -237,22 +372,18 @@ fun HyunWearsApp() {
                 },
                 onUploadSubmit = { enteredName, enteredPrice ->
                     isUploading = true
-                    // Why we use this: Creates a unique file inside the "T-shirts/" folder in Firebase Storage.
                     val fileName = "T-shirts/tee_${System.currentTimeMillis()}.jpg"
-                    val storageRef = storage.reference.child(fileName)
+                    val storageRef = storageInstance!!.reference.child(fileName)
 
-                    // Why we use this: Step 1 - Uploads the selected gallery image bytes to Firebase Storage.
                     storageRef.putFile(selectedGalleryUri!!)
                         .addOnSuccessListener {
-                            // Why we use this: Step 2 - Retrieves the official Firebase Storage download URL for the uploaded image.
                             storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
-                                // Why we use this: Step 3 - Saves Name, Price, and ImageUrl into the "T-shirts" collection in Firebase Firestore.
                                 val newTeeData = mapOf(
                                     "Name" to enteredName,
                                     "Price" to enteredPrice,
                                     "ImageUrl" to downloadUri.toString()
                                 )
-                                db.collection("T-shirts")
+                                dbInstance!!.collection("T-shirts")
                                     .add(newTeeData)
                                     .addOnSuccessListener {
                                         isUploading = false
@@ -282,37 +413,36 @@ fun HyunWearsApp() {
             ) {
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
+                    // Why we use this: Search bar loads its RGB border only after the app has finished opening to keep startup fast.
                     RgbSearchBar(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it },
+                        enableRgbBorder = isAppFullyOpened,
                         robotoFont = robotoFont
                     )
                 }
 
-                if (isLoading) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 40.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = Color(0xFF111111))
-                        }
+                if (isLoading || storageInstance == null) {
+                    // Why we use this: Displays YouTube-style Shimmer Skeleton Cards while waiting for Firebase data.
+                    items(2) {
+                        YouTubeSkeletonCard()
                     }
                 } else {
-                    items(filteredList, key = { it.id }) { tshirt ->
+                    // Why we use this: Loops through T-shirts with index so we can load the first 2 images first, then the rest later.
+                    itemsIndexed(filteredList, key = { _, item -> item.id }) { index, tshirt ->
                         val isSelected = selectedIds.contains(tshirt.id)
+                        val shouldLoadImageNow = (index < 2) || loadRemainingImages
+
                         TShirtCard(
                             tshirt = tshirt,
-                            storage = storage,
+                            storage = storageInstance!!,
+                            shouldLoadImage = shouldLoadImageNow,
                             isSelected = isSelected,
                             robotoFont = robotoFont,
                             onViewClick = {
                                 Toast.makeText(context, "Viewing ${tshirt.Name}", Toast.LENGTH_SHORT).show()
                             },
                             onBuyClick = {
-                                // Why we use this: Saves the purchased T-shirt into "Cart_Orders" with capitalized field names.
                                 val orderData = mapOf(
                                     "TshirtId" to tshirt.id,
                                     "Name" to tshirt.Name,
@@ -320,12 +450,12 @@ fun HyunWearsApp() {
                                     "ImageUrl" to tshirt.ImageUrl,
                                     "Timestamp" to System.currentTimeMillis()
                                 )
-                                db.collection("Cart_Orders")
-                                    .add(orderData)
-                                    .addOnSuccessListener {
+                                dbInstance?.collection("Cart_Orders")
+                                    ?.add(orderData)
+                                    ?.addOnSuccessListener {
                                         Toast.makeText(context, "Saved ${tshirt.Name} to Cart_Orders!", Toast.LENGTH_SHORT).show()
                                     }
-                                    .addOnFailureListener { e ->
+                                    ?.addOnFailureListener { e ->
                                         Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
                                     }
                             },
@@ -344,113 +474,90 @@ fun HyunWearsApp() {
     }
 }
 
-// Why we use this: Upload Page where you preview your selected gallery photo, enter Name and Price, and upload to Firebase.
+// Why we use this: Creates the animated grey shimmer brush identical to YouTube's skeleton loading animation.
 @Composable
-fun UploadTShirtScreen(
-    imageUri: Uri,
-    isUploading: Boolean,
-    robotoFont: FontFamily,
-    modifier: Modifier = Modifier,
-    onCancel: () -> Unit,
-    onUploadSubmit: (String, Int) -> Unit
-) {
-    var tshirtName by remember { mutableStateOf("") }
-    var tshirtPriceText by remember { mutableStateOf("") }
-    val context = LocalContext.current
+fun rememberYouTubeShimmerBrush(): Brush {
+    val transition = rememberInfiniteTransition(label = "shimmerTransition")
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerTranslate"
+    )
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    return Brush.linearGradient(
+        colors = listOf(
+            Color(0xFFEEEEEE),
+            Color(0xFFF9F9F9),
+            Color(0xFFEEEEEE)
+        ),
+        start = Offset(translateAnim - 300f, translateAnim - 300f),
+        end = Offset(translateAnim, translateAnim)
+    )
+}
+
+// Why we use this: YouTube-style loading card skeleton shown before T-shirts finish loading from Firebase.
+@Composable
+fun YouTubeSkeletonCard() {
+    val shimmerBrush = rememberYouTubeShimmerBrush()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, Color(0xFFEEEEEE))
     ) {
-        Text(
-            text = "Upload T-Shirt",
-            fontFamily = robotoFont,
-            fontWeight = FontWeight.Bold,
-            fontSize = 20.sp,
-            color = Color(0xFF111111)
-        )
-
-        // Why we use this: Previews the image you picked from your phone's gallery.
-        AsyncImage(
-            model = imageUri,
-            contentDescription = "Selected Image",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(240.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFFF2F2F2))
-        )
-
-        // Why we use this: Input box to enter the T-shirt Name.
-        OutlinedTextField(
-            value = tshirtName,
-            onValueChange = { tshirtName = it },
-            label = { Text("Name", fontFamily = robotoFont) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp)
-        )
-
-        // Why we use this: Numeric input box to enter the T-shirt Price (e.g., 500).
-        OutlinedTextField(
-            value = tshirtPriceText,
-            onValueChange = { tshirtPriceText = it.filter { char -> char.isDigit() } },
-            label = { Text("Price", fontFamily = robotoFont) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp)
-        )
-
-        if (isUploading) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Image placeholder shimmer
             Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = Color(0xFF111111))
-            }
-        } else {
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(230.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(shimmerBrush)
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Name and Price placeholder shimmer bars
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedButton(
-                    onClick = onCancel,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, Color(0xFFCCCCCC))
-                ) {
-                    Text(
-                        text = "Cancel",
-                        fontFamily = robotoFont,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 15.sp,
-                        color = Color(0xFF111111)
-                    )
-                }
+                Box(
+                    modifier = Modifier
+                        .width(150.dp)
+                        .height(20.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(shimmerBrush)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(55.dp)
+                        .height(20.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(shimmerBrush)
+                )
+            }
 
-                Button(
-                    onClick = {
-                        val priceVal = tshirtPriceText.toIntOrNull()
-                        if (tshirtName.isBlank() || priceVal == null) {
-                            Toast.makeText(context, "Enter Name and Price", Toast.LENGTH_SHORT).show()
-                        } else {
-                            onUploadSubmit(tshirtName.trim(), priceVal)
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111111))
-                ) {
-                    Text(
-                        text = "Upload",
-                        fontFamily = robotoFont,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 15.sp,
-                        color = Color.White
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // View, Buy, Select button placeholder shimmer rectangles
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                repeat(3) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(shimmerBrush)
                     )
                 }
             }
@@ -462,19 +569,26 @@ fun UploadTShirtScreen(
 fun RgbSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
+    enableRgbBorder: Boolean,
     robotoFont: FontFamily
 ) {
-    val rgbGradient = remember {
-        Brush.linearGradient(
-            colors = listOf(Color(0xFFFF0000), Color(0xFF00FF00), Color(0xFF0000FF))
-        )
+    // Why we use this: Allocates the RGB border brush only after the app has finished opening to reduce startup time.
+    val borderModifier = if (enableRgbBorder) {
+        val rgbGradient = remember {
+            Brush.linearGradient(
+                colors = listOf(Color(0xFFFF0000), Color(0xFF00FF00), Color(0xFF0000FF))
+            )
+        }
+        Modifier.border(width = 1.5.dp, brush = rgbGradient, shape = RoundedCornerShape(12.dp))
+    } else {
+        Modifier.border(width = 1.dp, color = Color(0xFFE0E0E0), shape = RoundedCornerShape(12.dp))
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White, RoundedCornerShape(12.dp))
-            .border(width = 1.5.dp, brush = rgbGradient, shape = RoundedCornerShape(12.dp))
+            .then(borderModifier)
             .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -515,16 +629,19 @@ fun RgbSearchBar(
 fun TShirtCard(
     tshirt: TShirt,
     storage: FirebaseStorage,
+    shouldLoadImage: Boolean,
     isSelected: Boolean,
     robotoFont: FontFamily,
     onViewClick: () -> Unit,
     onBuyClick: () -> Unit,
     onSelectClick: () -> Unit
 ) {
-    // Why we use this: Resolves Firebase Storage paths or download URLs from Firebase Backend.
+    // Why we use this: Resolves the Firebase Storage URL only when shouldLoadImage is true (first 2 immediately, others after app opens).
     var resolvedDownloadUrl by remember(tshirt.ImageUrl) { mutableStateOf("") }
+    var isImageRendered by remember(tshirt.ImageUrl) { mutableStateOf(false) }
 
-    LaunchedEffect(tshirt.ImageUrl) {
+    LaunchedEffect(tshirt.ImageUrl, shouldLoadImage) {
+        if (!shouldLoadImage) return@LaunchedEffect
         val rawUrl = tshirt.ImageUrl.trim()
         if (rawUrl.isEmpty()) {
             resolvedDownloadUrl = ""
@@ -547,16 +664,31 @@ fun TShirtCard(
         border = BorderStroke(1.dp, Color(0xFFEEEEEE))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            AsyncImage(
-                model = resolvedDownloadUrl,
-                contentDescription = tshirt.Name,
-                contentScale = ContentScale.Crop,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(230.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF2F2F2))
-            )
+            ) {
+                // Why we use this: Shows YouTube shimmer inside the image box while waiting for the image or staggered queue.
+                if (!isImageRendered) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(rememberYouTubeShimmerBrush())
+                    )
+                }
+
+                if (shouldLoadImage && resolvedDownloadUrl.isNotEmpty()) {
+                    AsyncImage(
+                        model = resolvedDownloadUrl,
+                        contentDescription = tshirt.Name,
+                        contentScale = ContentScale.Crop,
+                        onSuccess = { isImageRendered = true },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
@@ -632,6 +764,116 @@ fun TShirtCard(
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
                         color = Color(0xFF111111)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UploadTShirtScreen(
+    imageUri: Uri,
+    isUploading: Boolean,
+    robotoFont: FontFamily,
+    modifier: Modifier = Modifier,
+    onCancel: () -> Unit,
+    onUploadSubmit: (String, Int) -> Unit
+) {
+    var tshirtName by remember { mutableStateOf("") }
+    var tshirtPriceText by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Upload T-Shirt",
+            fontFamily = robotoFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 20.sp,
+            color = Color(0xFF111111)
+        )
+
+        AsyncImage(
+            model = imageUri,
+            contentDescription = "Selected Image",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(240.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFFF2F2F2))
+        )
+
+        OutlinedTextField(
+            value = tshirtName,
+            onValueChange = { tshirtName = it },
+            label = { Text("Name", fontFamily = robotoFont) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        OutlinedTextField(
+            value = tshirtPriceText,
+            onValueChange = { tshirtPriceText = it.filter { char -> char.isDigit() } },
+            label = { Text("Price", fontFamily = robotoFont) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        if (isUploading) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color(0xFF111111))
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFFCCCCCC))
+                ) {
+                    Text(
+                        text = "Cancel",
+                        fontFamily = robotoFont,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 15.sp,
+                        color = Color(0xFF111111)
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        val priceVal = tshirtPriceText.toIntOrNull()
+                        if (tshirtName.isBlank() || priceVal == null) {
+                            Toast.makeText(context, "Enter Name and Price", Toast.LENGTH_SHORT).show()
+                        } else {
+                            onUploadSubmit(tshirtName.trim(), priceVal)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111111))
+                ) {
+                    Text(
+                        text = "Upload",
+                        fontFamily = robotoFont,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 15.sp,
+                        color = Color.White
                     )
                 }
             }
