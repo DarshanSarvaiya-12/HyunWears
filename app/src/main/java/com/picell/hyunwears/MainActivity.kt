@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.*
@@ -38,6 +37,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -47,9 +49,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.math.exp
 import kotlin.math.sin
 
@@ -64,8 +69,8 @@ data class TShirt(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Why we use this: Draws the Frontend UI immediately on launch before Firebase even starts.
         setContent {
-            // Why we use this: Enforces a clean Light Mode color scheme across HyunWears.
             MaterialTheme(
                 colorScheme = lightColorScheme(
                     background = Color(0xFFFAFAFA),
@@ -81,7 +86,39 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Why we use this: Plays a pleasant, modern 2-note harmonic opening chime on a background thread without needing external MP3 files.
+// Why we use this: Custom lightweight Upload Icon so we don't need the 15MB material-icons-extended library.
+@Composable
+fun rememberUploadIcon(): ImageVector {
+    return remember {
+        ImageVector.Builder(
+            name = "UploadIcon",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(fill = SolidColor(Color(0xFF111111))) {
+                moveTo(9f, 16f)
+                horizontalLineToRelative(6f)
+                verticalLineToRelative(-6f)
+                horizontalLineToRelative(4f)
+                lineToRelative(-7f, -7f)
+                lineToRelative(-7f, 7f)
+                horizontalLineToRelative(4f)
+                verticalLineToRelative(6f)
+                close()
+                moveTo(5f, 18f)
+                horizontalLineToRelative(14f)
+                verticalLineToRelative(2f)
+                horizontalLineTo(5f)
+                verticalLineToRelative(-2f)
+                close()
+            }
+        }.build()
+    }
+}
+
+// Why we use this: Plays the 2-note harmonic opening chime on a background thread as soon as the app opens.
 fun playOpeningSound() {
     Thread {
         try {
@@ -92,7 +129,6 @@ fun playOpeningSound() {
 
             for (i in 0 until numSamples) {
                 val t = i.toDouble() / sampleRate
-                // Why we use this: First note (523Hz C5) transitions into second higher note (784Hz G5) with smooth fade-out.
                 val freq = if (t < 0.18) 523.25 else 783.99
                 val localT = if (t < 0.18) t else (t - 0.18)
                 val envelope = exp(-6.0 * localT)
@@ -123,43 +159,46 @@ fun playOpeningSound() {
             Thread.sleep(700)
             audioTrack.release()
         } catch (_: Exception) {
-            // Why we use this: Safely ignores audio errors if the phone is on silent or DND mode.
         }
     }.start()
 }
 
-// Why we use this: Manages the instant HyunWears opening animation first so the app opens in < 0.5 seconds instead of 7 seconds.
+// Why we use this: Displays the Frontend and Opening Animation immediately (< 1 second), then signals Firebase to start.
 @Composable
 fun HyunWearsMainEntry() {
     var showSplashAnimation by remember { mutableStateOf(true) }
+    var startBackendNow by remember { mutableStateOf(false) }
     var isAppFullyOpened by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        // Why we use this: Triggers the opening sound immediately when the app launches.
+        // Step 1: Play opening sound and show opening animation immediately.
         playOpeningSound()
-        // Why we use this: Shows the smooth HyunWears opening animation for 1.1 seconds, then opens the store and activates RGB search.
-        delay(1100)
+        delay(950)
+        // Step 2: Fade out opening screen to reveal the Frontend & YouTube Shimmer Cards.
         showSplashAnimation = false
-        delay(300)
+        delay(200)
+        // Step 3: Now that Frontend is visible on screen, start Firebase Backend and RGB Search Bar!
+        startBackendNow = true
         isAppFullyOpened = true
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Why we use this: Renders the store underneath once the first frame is ready so Firebase loads without blocking startup.
-        HyunWearsApp(isAppFullyOpened = isAppFullyOpened)
+        HyunWearsApp(
+            startBackendNow = startBackendNow,
+            isAppFullyOpened = isAppFullyOpened
+        )
 
-        // Why we use this: Smoothly fades out the HyunWears opening animation screen once completed.
         AnimatedVisibility(
             visible = showSplashAnimation,
             enter = fadeIn(),
-            exit = fadeOut(animationSpec = tween(350))
+            exit = fadeOut(animationSpec = tween(300))
         ) {
             HyunWearsOpeningScreen()
         }
     }
 }
 
-// Why we use this: Beautiful light-mode opening animation scaling up "HyunWears" in Georgia font.
+// Why we use this: Light-mode opening animation scaling up "HyunWears" in Georgia font.
 @Composable
 fun HyunWearsOpeningScreen() {
     var startAnim by remember { mutableStateOf(false) }
@@ -167,12 +206,12 @@ fun HyunWearsOpeningScreen() {
 
     val scale by animateFloatAsState(
         targetValue = if (startAnim) 1.0f else 0.82f,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
         label = "splashScale"
     )
     val alpha by animateFloatAsState(
         targetValue = if (startAnim) 1.0f else 0.0f,
-        animationSpec = tween(durationMillis = 600),
+        animationSpec = tween(durationMillis = 550),
         label = "splashAlpha"
     )
 
@@ -196,31 +235,30 @@ fun HyunWearsOpeningScreen() {
 }
 
 @Composable
-fun HyunWearsApp(isAppFullyOpened: Boolean) {
+fun HyunWearsApp(
+    startBackendNow: Boolean,
+    isAppFullyOpened: Boolean
+) {
     val robotoFont = FontFamily.SansSerif
     val georgiaFont = FontFamily.Serif
     val context = LocalContext.current
 
-    // Why we use this: Reactive state lists for live Firebase T-shirts, search text, cart count, and loading state.
     val catalog = remember { mutableStateListOf<TShirt>() }
     var isLoading by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var cartCount by remember { mutableIntStateOf(0) }
     val selectedIds = remember { mutableStateListOf<String>() }
 
-    // Why we use this: Controls staggered image loading (loads first 2 images immediately, then loads the rest after app opens).
+    // Why we use this: Controls loading the first 2 images first, then the remaining images afterward.
     var loadRemainingImages by remember { mutableStateOf(false) }
 
-    // Why we use this: State variables for the Gallery Picker and Upload Screen.
     var selectedGalleryUri by remember { mutableStateOf<Uri?>(null) }
     var showUploadPage by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
 
-    // Why we use this: Holds deferred Firebase instances so they don't slow down the cold launch of the app.
     var dbInstance by remember { mutableStateOf<FirebaseFirestore?>(null) }
     var storageInstance by remember { mutableStateOf<FirebaseStorage?>(null) }
 
-    // Why we use this: Opens the phone's native photo gallery when the user taps the Upload icon.
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -230,11 +268,14 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
         }
     }
 
-    // Why we use this: Connects to Firebase AFTER the first UI frame is drawn so startup time drops from 7s to instant.
-    LaunchedEffect(Unit) {
-        delay(150)
-        val db = FirebaseFirestore.getInstance()
-        val storage = FirebaseStorage.getInstance()
+    // Why we use this: Initializes Firebase on a background thread ONLY AFTER the Frontend UI is already open!
+    LaunchedEffect(startBackendNow) {
+        if (!startBackendNow) return@LaunchedEffect
+
+        val (db, storage) = withContext(Dispatchers.IO) {
+            FirebaseApp.initializeApp(context)
+            Pair(FirebaseFirestore.getInstance(), FirebaseStorage.getInstance())
+        }
         dbInstance = db
         storageInstance = storage
 
@@ -273,7 +314,7 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
             }
     }
 
-    // Why we use this: Once the first 2 T-shirts start loading and the app is open, triggers loading for all remaining T-shirt images.
+    // Why we use this: Loads the remaining T-shirt images 800ms after the first 2 images start loading.
     LaunchedEffect(isLoading, isAppFullyOpened) {
         if (!isLoading && isAppFullyOpened) {
             delay(800)
@@ -281,7 +322,6 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
         }
     }
 
-    // Why we use this: Filters the live Firebase T-shirts based on the user's search query.
     val filteredList = remember(catalog.size, searchQuery) {
         catalog.filter { it.Name.contains(searchQuery, ignoreCase = true) }
     }
@@ -298,7 +338,6 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Why we use this: Shows "HyunWears" at the upper-left side in Georgia font.
                     Text(
                         text = "HyunWears",
                         fontFamily = georgiaFont,
@@ -307,11 +346,11 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
                         color = Color(0xFF111111)
                     )
 
-                    // Why we use this: Upper-right row holding the Upload Icon button right next to the Cart button.
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Why we use this: Upload Icon button next to Cart that opens your phone's gallery.
                         OutlinedButton(
                             onClick = {
                                 galleryLauncher.launch(
@@ -323,7 +362,7 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.CloudUpload,
+                                imageVector = rememberUploadIcon(),
                                 contentDescription = "Upload T-Shirt",
                                 tint = Color(0xFF111111),
                                 modifier = Modifier.size(20.dp)
@@ -413,7 +452,6 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
             ) {
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
-                    // Why we use this: Search bar loads its RGB border only after the app has finished opening to keep startup fast.
                     RgbSearchBar(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it },
@@ -423,12 +461,11 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
                 }
 
                 if (isLoading || storageInstance == null) {
-                    // Why we use this: Displays YouTube-style Shimmer Skeleton Cards while waiting for Firebase data.
+                    // Why we use this: Shows YouTube-style Shimmer Loading Cards immediately while Firebase connects in background.
                     items(2) {
                         YouTubeSkeletonCard()
                     }
                 } else {
-                    // Why we use this: Loops through T-shirts with index so we can load the first 2 images first, then the rest later.
                     itemsIndexed(filteredList, key = { _, item -> item.id }) { index, tshirt ->
                         val isSelected = selectedIds.contains(tshirt.id)
                         val shouldLoadImageNow = (index < 2) || loadRemainingImages
@@ -474,7 +511,6 @@ fun HyunWearsApp(isAppFullyOpened: Boolean) {
     }
 }
 
-// Why we use this: Creates the animated grey shimmer brush identical to YouTube's skeleton loading animation.
 @Composable
 fun rememberYouTubeShimmerBrush(): Brush {
     val transition = rememberInfiniteTransition(label = "shimmerTransition")
@@ -499,7 +535,6 @@ fun rememberYouTubeShimmerBrush(): Brush {
     )
 }
 
-// Why we use this: YouTube-style loading card skeleton shown before T-shirts finish loading from Firebase.
 @Composable
 fun YouTubeSkeletonCard() {
     val shimmerBrush = rememberYouTubeShimmerBrush()
@@ -512,7 +547,6 @@ fun YouTubeSkeletonCard() {
         border = BorderStroke(1.dp, Color(0xFFEEEEEE))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Image placeholder shimmer
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -523,7 +557,6 @@ fun YouTubeSkeletonCard() {
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Name and Price placeholder shimmer bars
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -546,7 +579,6 @@ fun YouTubeSkeletonCard() {
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // View, Buy, Select button placeholder shimmer rectangles
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -572,7 +604,6 @@ fun RgbSearchBar(
     enableRgbBorder: Boolean,
     robotoFont: FontFamily
 ) {
-    // Why we use this: Allocates the RGB border brush only after the app has finished opening to reduce startup time.
     val borderModifier = if (enableRgbBorder) {
         val rgbGradient = remember {
             Brush.linearGradient(
@@ -636,7 +667,6 @@ fun TShirtCard(
     onBuyClick: () -> Unit,
     onSelectClick: () -> Unit
 ) {
-    // Why we use this: Resolves the Firebase Storage URL only when shouldLoadImage is true (first 2 immediately, others after app opens).
     var resolvedDownloadUrl by remember(tshirt.ImageUrl) { mutableStateOf("") }
     var isImageRendered by remember(tshirt.ImageUrl) { mutableStateOf(false) }
 
@@ -670,7 +700,6 @@ fun TShirtCard(
                     .height(230.dp)
                     .clip(RoundedCornerShape(12.dp))
             ) {
-                // Why we use this: Shows YouTube shimmer inside the image box while waiting for the image or staggered queue.
                 if (!isImageRendered) {
                     Box(
                         modifier = Modifier
