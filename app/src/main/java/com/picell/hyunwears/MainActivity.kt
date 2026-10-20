@@ -11,10 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,9 +21,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -69,7 +63,7 @@ data class TShirt(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Why we use this: Draws the Frontend UI immediately on launch before Firebase even starts.
+        // Why we use this: Renders ONLY the light-weight Opening Animation on frame 1 so the app opens in < 0.2s.
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -86,39 +80,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Why we use this: Custom lightweight Upload Icon so we don't need the 15MB material-icons-extended library.
-@Composable
-fun rememberUploadIcon(): ImageVector {
-    return remember {
-        ImageVector.Builder(
-            name = "UploadIcon",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
-        ).apply {
-            path(fill = SolidColor(Color(0xFF111111))) {
-                moveTo(9f, 16f)
-                horizontalLineToRelative(6f)
-                verticalLineToRelative(-6f)
-                horizontalLineToRelative(4f)
-                lineToRelative(-7f, -7f)
-                lineToRelative(-7f, 7f)
-                horizontalLineToRelative(4f)
-                verticalLineToRelative(6f)
-                close()
-                moveTo(5f, 18f)
-                horizontalLineToRelative(14f)
-                verticalLineToRelative(2f)
-                horizontalLineTo(5f)
-                verticalLineToRelative(-2f)
-                close()
-            }
-        }.build()
-    }
-}
-
-// Why we use this: Plays the 2-note harmonic opening chime on a background thread as soon as the app opens.
+// Why we use this: Plays the 2-note harmonic opening chime on a background thread the instant the app opens.
 fun playOpeningSound() {
     Thread {
         try {
@@ -163,55 +125,42 @@ fun playOpeningSound() {
     }.start()
 }
 
-// Why we use this: Displays the Frontend and Opening Animation immediately (< 1 second), then signals Firebase to start.
+// Why we use this: Separates the Opening Screen completely from the Store UI so zero store code runs during launch!
 @Composable
 fun HyunWearsMainEntry() {
-    var showSplashAnimation by remember { mutableStateOf(true) }
-    var startBackendNow by remember { mutableStateOf(false) }
-    var isAppFullyOpened by remember { mutableStateOf(false) }
+    var isOpeningFinished by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        // Step 1: Play opening sound and show opening animation immediately.
-        playOpeningSound()
-        delay(950)
-        // Step 2: Fade out opening screen to reveal the Frontend & YouTube Shimmer Cards.
-        showSplashAnimation = false
-        delay(200)
-        // Step 3: Now that Frontend is visible on screen, start Firebase Backend and RGB Search Bar!
-        startBackendNow = true
-        isAppFullyOpened = true
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        HyunWearsApp(
-            startBackendNow = startBackendNow,
-            isAppFullyOpened = isAppFullyOpened
+    if (!isOpeningFinished) {
+        // Why we use this: Frame 1 ONLY draws this single white screen + "HyunWears" animation for instant startup.
+        HyunWearsOpeningScreen(
+            onOpeningComplete = { isOpeningFinished = true }
         )
-
-        AnimatedVisibility(
-            visible = showSplashAnimation,
-            enter = fadeIn(),
-            exit = fadeOut(animationSpec = tween(300))
-        ) {
-            HyunWearsOpeningScreen()
-        }
+    } else {
+        // Why we use this: Loads the Store Frontend & YouTube Shimmer Cards right after the opening animation finishes.
+        HyunWearsApp()
     }
 }
 
-// Why we use this: Light-mode opening animation scaling up "HyunWears" in Georgia font.
+// Why we use this: Instant opening animation scaling up "HyunWears" in Georgia font with opening sound.
 @Composable
-fun HyunWearsOpeningScreen() {
+fun HyunWearsOpeningScreen(onOpeningComplete: () -> Unit) {
     var startAnim by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { startAnim = true }
+
+    LaunchedEffect(Unit) {
+        startAnim = true
+        playOpeningSound()
+        delay(850)
+        onOpeningComplete()
+    }
 
     val scale by animateFloatAsState(
-        targetValue = if (startAnim) 1.0f else 0.82f,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        targetValue = if (startAnim) 1.0f else 0.84f,
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
         label = "splashScale"
     )
     val alpha by animateFloatAsState(
         targetValue = if (startAnim) 1.0f else 0.0f,
-        animationSpec = tween(durationMillis = 550),
+        animationSpec = tween(durationMillis = 500),
         label = "splashAlpha"
     )
 
@@ -234,11 +183,70 @@ fun HyunWearsOpeningScreen() {
     }
 }
 
+// Why we use this: Custom lightweight icons so R8 can strip out the entire Material Icons library to shrink the APK.
 @Composable
-fun HyunWearsApp(
-    startBackendNow: Boolean,
-    isAppFullyOpened: Boolean
-) {
+fun rememberUploadIcon(): ImageVector {
+    return remember {
+        ImageVector.Builder("Upload", 24.dp, 24.dp, 24f, 24f).apply {
+            path(fill = SolidColor(Color(0xFF111111))) {
+                moveTo(9f, 16f); horizontalLineToRelative(6f); verticalLineToRelative(-6f)
+                horizontalLineToRelative(4f); lineToRelative(-7f, -7f); lineToRelative(-7f, 7f)
+                horizontalLineToRelative(4f); verticalLineToRelative(6f); close()
+                moveTo(5f, 18f); horizontalLineToRelative(14f); verticalLineToRelative(2f)
+                horizontalLineTo(5f); verticalLineToRelative(-2f); close()
+            }
+        }.build()
+    }
+}
+
+@Composable
+fun rememberCartIcon(): ImageVector {
+    return remember {
+        ImageVector.Builder("Cart", 24.dp, 24.dp, 24f, 24f).apply {
+            path(fill = SolidColor(Color(0xFF111111))) {
+                moveTo(7f, 18f); curveToRelative(-1.1f, 0f, -1.99f, 0.9f, -1.99f, 2f)
+                reflectiveCurveTo(5.9f, 22f, 7f, 22f); reflectiveCurveToRelative(2f, -0.9f, 2f, -2f)
+                reflectiveCurveToRelative(-0.9f, -2f, -2f, -2f); close()
+                moveTo(1f, 2f); verticalLineToRelative(2f); horizontalLineToRelative(2f)
+                lineToRelative(3.6f, 7.59f); lineToRelative(-1.35f, 2.45f)
+                curveToRelative(-0.16f, 0.28f, -0.25f, 0.61f, -0.25f, 0.96f)
+                curveToRelative(0f, 1.1f, 0.9f, 2f, 2f, 2f); horizontalLineToRelative(12f)
+                verticalLineToRelative(-2f); horizontalLineTo(7.42f)
+                curveToRelative(-0.14f, 0f, -0.25f, -0.11f, -0.25f, -0.25f)
+                lineToRelative(0.03f, -0.12f); lineToRelative(0.9f, -1.63f)
+                horizontalLineToRelative(7.45f); curveToRelative(0.75f, 0f, 1.41f, -0.41f, 1.75f, -1.03f)
+                lineToRelative(3.58f, -6.49f); curveToRelative(0.08f, -0.14f, 0.12f, -0.31f, 0.12f, -0.48f)
+                curveToRelative(0f, -0.55f, -0.45f, -1f, -1f, -1f); horizontalLineTo(5.21f)
+                lineToRelative(-0.94f, -2f); horizontalLineTo(1f); close()
+                moveTo(17f, 18f); curveToRelative(-1.1f, 0f, -1.99f, 0.9f, -1.99f, 2f)
+                reflectiveCurveToRelative(0.89f, 2f, 1.99f, 2f); reflectiveCurveToRelative(2f, -0.9f, 2f, -2f)
+                reflectiveCurveToRelative(-0.9f, -2f, -2f, -2f); close()
+            }
+        }.build()
+    }
+}
+
+@Composable
+fun rememberSearchIcon(): ImageVector {
+    return remember {
+        ImageVector.Builder("Search", 24.dp, 24.dp, 24f, 24f).apply {
+            path(fill = SolidColor(Color(0xFF555555))) {
+                moveTo(15.5f, 14f); horizontalLineToRelative(-0.79f); lineToRelative(-0.28f, -0.27f)
+                curveTo(15.41f, 12.59f, 16f, 11.11f, 16f, 9.5f); curveTo(16f, 5.91f, 13.09f, 3f, 9.5f, 3f)
+                reflectiveCurveTo(3f, 5.91f, 3f, 9.5f); reflectiveCurveTo(5.91f, 16f, 9.5f, 16f)
+                curveToRelative(1.61f, 0f, 3.09f, -0.59f, 4.23f, -1.57f); lineToRelative(0.27f, 0.28f)
+                verticalLineToRelative(0.79f); lineToRelative(5f, 4.99f); lineTo(20.49f, 19f)
+                lineToRelative(-4.99f, -5f); close()
+                moveTo(9.5f, 14f); curveTo(7.01f, 14f, 5f, 11.99f, 5f, 9.5f)
+                reflectiveCurveTo(7.01f, 5f, 9.5f, 5f); reflectiveCurveTo(14f, 7.01f, 14f, 9.5f)
+                reflectiveCurveTo(11.99f, 14f, 9.5f, 14f); close()
+            }
+        }.build()
+    }
+}
+
+@Composable
+fun HyunWearsApp() {
     val robotoFont = FontFamily.SansSerif
     val georgiaFont = FontFamily.Serif
     val context = LocalContext.current
@@ -249,7 +257,8 @@ fun HyunWearsApp(
     var cartCount by remember { mutableIntStateOf(0) }
     val selectedIds = remember { mutableStateListOf<String>() }
 
-    // Why we use this: Controls loading the first 2 images first, then the remaining images afterward.
+    // Why we use this: Defers the RGB border and remaining images until after the store screen is visible.
+    var enableRgbBorder by remember { mutableStateOf(false) }
     var loadRemainingImages by remember { mutableStateOf(false) }
 
     var selectedGalleryUri by remember { mutableStateOf<Uri?>(null) }
@@ -268,9 +277,10 @@ fun HyunWearsApp(
         }
     }
 
-    // Why we use this: Initializes Firebase on a background thread ONLY AFTER the Frontend UI is already open!
-    LaunchedEffect(startBackendNow) {
-        if (!startBackendNow) return@LaunchedEffect
+    // Why we use this: Draws the YouTube Shimmer Cards first, then starts Firebase Backend and RGB Search Bar in the background.
+    LaunchedEffect(Unit) {
+        delay(100)
+        enableRgbBorder = true
 
         val (db, storage) = withContext(Dispatchers.IO) {
             FirebaseApp.initializeApp(context)
@@ -314,9 +324,9 @@ fun HyunWearsApp(
             }
     }
 
-    // Why we use this: Loads the remaining T-shirt images 800ms after the first 2 images start loading.
-    LaunchedEffect(isLoading, isAppFullyOpened) {
-        if (!isLoading && isAppFullyOpened) {
+    // Why we use this: Loads the first 2 images immediately, then loads the rest 800ms later.
+    LaunchedEffect(isLoading) {
+        if (!isLoading) {
             delay(800)
             loadRemainingImages = true
         }
@@ -350,7 +360,6 @@ fun HyunWearsApp(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Why we use this: Upload Icon button next to Cart that opens your phone's gallery.
                         OutlinedButton(
                             onClick = {
                                 galleryLauncher.launch(
@@ -378,7 +387,7 @@ fun HyunWearsApp(
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.ShoppingCart,
+                                imageVector = rememberCartIcon(),
                                 contentDescription = "Cart",
                                 tint = Color(0xFF111111),
                                 modifier = Modifier.size(20.dp)
@@ -455,13 +464,13 @@ fun HyunWearsApp(
                     RgbSearchBar(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it },
-                        enableRgbBorder = isAppFullyOpened,
+                        enableRgbBorder = enableRgbBorder,
                         robotoFont = robotoFont
                     )
                 }
 
                 if (isLoading || storageInstance == null) {
-                    // Why we use this: Shows YouTube-style Shimmer Loading Cards immediately while Firebase connects in background.
+                    // Why we use this: Shows YouTube-style Shimmer Loading Cards while Firebase connects.
                     items(2) {
                         YouTubeSkeletonCard()
                     }
@@ -624,7 +633,7 @@ fun RgbSearchBar(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = Icons.Outlined.Search,
+                imageVector = rememberSearchIcon(),
                 contentDescription = "Search",
                 tint = Color(0xFF555555),
                 modifier = Modifier.size(20.dp)
