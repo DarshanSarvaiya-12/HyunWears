@@ -22,6 +22,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
@@ -66,18 +68,21 @@ import kotlinx.coroutines.withContext
 import kotlin.math.exp
 import kotlin.math.sin
 
-// Why we use this: Blueprint for each T-shirt matching our capitalized Firebase fields (Name, Price, ImageUrl).
+// Why we use this: Blueprint for each T-shirt matching our capitalized Firebase fields including Material, Colour, and Fabric.
 data class TShirt(
     val id: String = "",
     val Name: String = "",
     val Price: Int = 0,
-    val ImageUrl: String = ""
+    val ImageUrl: String = "",
+    val Material: String = "Cotton",
+    val Colour: String = "Green",
+    val Fabric: String = "220 GSM"
 )
 
-// Why we use this: FontFamily.Serif maps directly to Android's built-in NotoSerif-Regular.ttf and NotoSerif-Bold.ttf files.
+// Why we use this: FontFamily.Serif maps directly to Android's built-in NotoSerif font engine.
 val NotoSerifFontFamily = FontFamily.Serif
 
-// Why we use this: Applies Noto Serif as the global default font across the entire app so the phone's default sans-serif never appears.
+// Why we use this: Applies Noto Serif globally across the entire app.
 val HyunWearsTypography = Typography(
     displayLarge = TextStyle(fontFamily = NotoSerifFontFamily),
     displayMedium = TextStyle(fontFamily = NotoSerifFontFamily),
@@ -99,7 +104,7 @@ val HyunWearsTypography = Typography(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Why we use this: Renders the light-mode theme with global Noto Serif typography immediately on launch.
+        // Why we use this: Draws the light-mode theme and instant opening animation on Frame 1.
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -117,7 +122,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Why we use this: Reusable white button with a thin black border that animates into a thicker dark border when clicked or selected.
+// Why we use this: Reusable white button with a thin black border that animates to a thicker dark border when clicked.
 @Composable
 fun AnimatedWhiteButton(
     onClick: () -> Unit,
@@ -132,7 +137,6 @@ fun AnimatedWhiteButton(
     var clickPulse by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // Why we use this: Keeps the thicker dark border visible for 220ms on tap or permanently while selected.
     val isActive = isPressed || clickPulse || isSelected
 
     val borderWidth by animateDpAsState(
@@ -219,7 +223,7 @@ fun playOpeningSound() {
     }.start()
 }
 
-// Why we use this: Separates the Opening Screen from the Store UI so zero store code runs during cold launch.
+// Why we use this: Separates the Opening Screen from the Store UI so cold startup is instant.
 @Composable
 fun HyunWearsMainEntry() {
     var isOpeningFinished by remember { mutableStateOf(false) }
@@ -233,7 +237,6 @@ fun HyunWearsMainEntry() {
     }
 }
 
-// Why we use this: Instant opening animation scaling up the slightly bold "HyunWears" Georgia-style serif logo.
 @Composable
 fun HyunWearsOpeningScreen(onOpeningComplete: () -> Unit) {
     var startAnim by remember { mutableStateOf(false) }
@@ -276,7 +279,7 @@ fun HyunWearsOpeningScreen(onOpeningComplete: () -> Unit) {
     }
 }
 
-// Why we use this: Custom lightweight vector symbols for Upload, Cart, and Search so APK stays under 2 MB.
+// Why we use this: Custom lightweight vector symbols for Upload, Cart, and Search.
 @Composable
 fun rememberUploadIcon(): ImageVector {
     return remember {
@@ -342,29 +345,31 @@ fun rememberSearchIcon(): ImageVector {
 fun HyunWearsApp() {
     val context = LocalContext.current
 
+    // Why we use this: Live lists for Firebase catalog, selected T-shirt IDs, and purchased items from Firebase Cart_Orders.
     val catalog = remember { mutableStateListOf<TShirt>() }
-    var isLoading by remember { mutableStateOf(true) }
-    var searchQuery by remember { mutableStateOf("") }
-    var cartCount by remember { mutableIntStateOf(0) }
+    val purchasedList = remember { mutableStateListOf<TShirt>() }
     val selectedIds = remember { mutableStateListOf<String>() }
 
-    // Why we use this: Holds the currently viewed T-shirt when the user clicks the "View" button.
-    var viewingTShirt by remember { mutableStateOf<TShirt?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
 
-    // Why we use this: Defers the RGB border and remaining images until after the store screen is visible.
+    // Why we use this: Navigation states for View Page, Cart Page, and Upload Page.
+    var viewingTShirt by remember { mutableStateOf<TShirt?>(null) }
+    var showCartPage by remember { mutableStateOf(false) }
+    var showUploadPage by remember { mutableStateOf(false) }
+    var selectedGalleryUri by remember { mutableStateOf<Uri?>(null) }
+    var isUploading by remember { mutableStateOf(false) }
+
     var enableRgbBorder by remember { mutableStateOf(false) }
     var loadRemainingImages by remember { mutableStateOf(false) }
-
-    var selectedGalleryUri by remember { mutableStateOf<Uri?>(null) }
-    var showUploadPage by remember { mutableStateOf(false) }
-    var isUploading by remember { mutableStateOf(false) }
 
     var dbInstance by remember { mutableStateOf<FirebaseFirestore?>(null) }
     var storageInstance by remember { mutableStateOf<FirebaseStorage?>(null) }
 
-    // Why we use this: Makes the phone's hardware/gesture Back button work properly across View page, Upload page, and Search!
-    BackHandler(enabled = viewingTShirt != null || showUploadPage || searchQuery.isNotEmpty()) {
+    // Why we use this: Makes the phone's Back button navigate properly from Cart, View, Upload, or Search back to Home.
+    BackHandler(enabled = showCartPage || viewingTShirt != null || showUploadPage || searchQuery.isNotEmpty()) {
         when {
+            showCartPage -> showCartPage = false
             viewingTShirt != null -> viewingTShirt = null
             showUploadPage && !isUploading -> {
                 showUploadPage = false
@@ -380,11 +385,12 @@ fun HyunWearsApp() {
         if (uri != null) {
             selectedGalleryUri = uri
             viewingTShirt = null
+            showCartPage = false
             showUploadPage = true
         }
     }
 
-    // Why we use this: Draws the YouTube Shimmer Cards first, then starts Firebase Backend and RGB Search Bar in the background.
+    // Why we use this: Connects to Firebase Firestore and Storage in the background after the UI opens.
     LaunchedEffect(Unit) {
         delay(100)
         enableRgbBorder = true
@@ -410,7 +416,35 @@ fun HyunWearsApp() {
                         val name = doc.getString("Name") ?: ""
                         val price = doc.getLong("Price")?.toInt() ?: 0
                         val imageUrl = doc.getString("ImageUrl") ?: ""
+                        val material = doc.getString("Material") ?: "Cotton"
+                        val colour = doc.getString("Colour") ?: "Green"
+                        val fabric = doc.getString("Fabric") ?: "220 GSM"
                         catalog.add(
+                            TShirt(
+                                id = doc.id,
+                                Name = name,
+                                Price = price,
+                                ImageUrl = imageUrl,
+                                Material = material,
+                                Colour = colour,
+                                Fabric = fabric
+                            )
+                        )
+                    }
+                    isLoading = false
+                }
+            }
+
+        // Why we use this: Listens to "Cart_Orders" in Firebase so the Purchased tab inside Cart Page shows live purchased items.
+        db.collection("Cart_Orders")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    purchasedList.clear()
+                    for (doc in snapshot.documents) {
+                        val name = doc.getString("Name") ?: ""
+                        val price = doc.getLong("Price")?.toInt() ?: 0
+                        val imageUrl = doc.getString("ImageUrl") ?: ""
+                        purchasedList.add(
                             TShirt(
                                 id = doc.id,
                                 Name = name,
@@ -419,19 +453,10 @@ fun HyunWearsApp() {
                             )
                         )
                     }
-                    isLoading = false
-                }
-            }
-
-        db.collection("Cart_Orders")
-            .addSnapshotListener { snapshot, _ ->
-                if (snapshot != null) {
-                    cartCount = snapshot.size()
                 }
             }
     }
 
-    // Why we use this: Loads the first 2 images immediately, then loads the rest 800ms later.
     LaunchedEffect(isLoading) {
         if (!isLoading) {
             delay(800)
@@ -443,10 +468,12 @@ fun HyunWearsApp() {
         catalog.filter { it.Name.contains(searchQuery, ignoreCase = true) }
     }
 
+    // Why we use this: Computes the list of currently Selected T-shirts to show in the Cart Page.
+    val selectedProducts = catalog.filter { selectedIds.contains(it.id) }
+
     Scaffold(
         containerColor = Color(0xFFFAFAFA),
         topBar = {
-            // Why we use this: Compact Header with slightly bold Georgia-style HyunWears logo on left and equal symbol buttons on right.
             Surface(color = Color.White, shadowElevation = 1.dp) {
                 Row(
                     modifier = Modifier
@@ -456,7 +483,6 @@ fun HyunWearsApp() {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Why we use this: Clicking the HyunWears logo also returns you home from View or Upload screens.
                     Text(
                         text = "HyunWears",
                         fontFamily = NotoSerifFontFamily,
@@ -469,15 +495,16 @@ fun HyunWearsApp() {
                             indication = null
                         ) {
                             viewingTShirt = null
+                            showCartPage = false
                             if (!isUploading) showUploadPage = false
                         }
                     )
 
-                    // Why we use this: Small, identical-sized (36dp x 36dp) symbol-only Upload and Cart buttons with animated borders.
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Upload symbol button
                         AnimatedWhiteButton(
                             onClick = {
                                 galleryLauncher.launch(
@@ -496,20 +523,39 @@ fun HyunWearsApp() {
                             )
                         }
 
-                        AnimatedWhiteButton(
-                            onClick = {
-                                Toast.makeText(context, "Cart_Orders items: $cartCount", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.size(36.dp),
-                            cornerRadius = 9.dp,
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Icon(
-                                imageVector = rememberCartIcon(),
-                                contentDescription = "Cart",
-                                tint = Color(0xFF111111),
-                                modifier = Modifier.size(18.dp)
-                            )
+                        // Why we use this: Cart symbol button with a Blue Dot indicator whenever any T-shirt is Selected.
+                        Box {
+                            AnimatedWhiteButton(
+                                onClick = {
+                                    viewingTShirt = null
+                                    if (!isUploading) showUploadPage = false
+                                    showCartPage = !showCartPage
+                                },
+                                modifier = Modifier.size(36.dp),
+                                cornerRadius = 9.dp,
+                                isSelected = showCartPage,
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Icon(
+                                    imageVector = rememberCartIcon(),
+                                    contentDescription = "Cart",
+                                    tint = Color(0xFF111111),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            // Why we use this: Shows a blue dot on the Cart button when at least one T-shirt is selected.
+                            if (selectedIds.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 2.dp, y = (-2).dp)
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF0066FF))
+                                        .border(1.5.dp, Color.White, CircleShape)
+                                )
+                            }
                         }
                     }
                 }
@@ -517,7 +563,7 @@ fun HyunWearsApp() {
         }
     ) { innerPadding ->
         when {
-            // Why we use this: Opens the Upload Page when the user selects a photo from their gallery.
+            // 1. Upload Page
             showUploadPage && selectedGalleryUri != null && storageInstance != null && dbInstance != null -> {
                 UploadTShirtScreen(
                     imageUri = selectedGalleryUri!!,
@@ -529,7 +575,7 @@ fun HyunWearsApp() {
                             selectedGalleryUri = null
                         }
                     },
-                    onUploadSubmit = { enteredName, enteredPrice ->
+                    onUploadSubmit = { enteredName, enteredPrice, enteredMaterial, enteredColour, enteredFabric ->
                         isUploading = true
                         val fileName = "T-shirts/tee_${System.currentTimeMillis()}.jpg"
                         val storageRef = storageInstance!!.reference.child(fileName)
@@ -540,7 +586,10 @@ fun HyunWearsApp() {
                                     val newTeeData = mapOf(
                                         "Name" to enteredName,
                                         "Price" to enteredPrice,
-                                        "ImageUrl" to downloadUri.toString()
+                                        "ImageUrl" to downloadUri.toString(),
+                                        "Material" to enteredMaterial,
+                                        "Colour" to enteredColour,
+                                        "Fabric" to enteredFabric
                                     )
                                     dbInstance!!.collection("T-shirts")
                                         .add(newTeeData)
@@ -564,7 +613,39 @@ fun HyunWearsApp() {
                 )
             }
 
-            // Why we use this: Opens the Product Detail Page when the user clicks "View" on any T-shirt card.
+            // 2. Cart Page (Opens when clicking the Cart button)
+            showCartPage && storageInstance != null -> {
+                CartScreen(
+                    selectedProducts = selectedProducts,
+                    purchasedProducts = purchasedList,
+                    storage = storageInstance!!,
+                    modifier = Modifier.padding(innerPadding),
+                    onRemoveSelected = { idToRemove ->
+                        selectedIds.remove(idToRemove)
+                    },
+                    onPurchaseClick = {
+                        if (selectedProducts.isEmpty()) {
+                            Toast.makeText(context, "No selected T-shirts in Cart", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Why we use this: Saves all Selected T-shirts in Cart into Firebase "Cart_Orders".
+                            selectedProducts.forEach { tee ->
+                                val orderData = mapOf(
+                                    "TshirtId" to tee.id,
+                                    "Name" to tee.Name,
+                                    "Price" to tee.Price,
+                                    "ImageUrl" to tee.ImageUrl,
+                                    "Timestamp" to System.currentTimeMillis()
+                                )
+                                dbInstance?.collection("Cart_Orders")?.add(orderData)
+                            }
+                            selectedIds.clear()
+                            Toast.makeText(context, "Purchase saved to Firebase Cart_Orders!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+            }
+
+            // 3. Product Detail Page (Opens when clicking "View")
             viewingTShirt != null && storageInstance != null -> {
                 val activeTee = viewingTShirt!!
                 val isSelected = selectedIds.contains(activeTee.id)
@@ -592,7 +673,7 @@ fun HyunWearsApp() {
                             ?.addOnSuccessListener {
                                 Toast.makeText(
                                     context,
-                                    "Added ${activeTee.Name} ($chosenSize x$chosenQty) to Cart_Orders!",
+                                    "Purchased ${activeTee.Name} ($chosenSize x$chosenQty)!",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -603,7 +684,7 @@ fun HyunWearsApp() {
                 )
             }
 
-            // Why we use this: Default Home Catalog showing the RGB Search Bar and T-shirt Cards.
+            // 4. Home Store Catalog
             else -> {
                 Column(
                     modifier = Modifier
@@ -682,22 +763,127 @@ fun HyunWearsApp() {
     }
 }
 
-// Why we use this: Product Detail Page opened when clicking "View" — shows 5 auto-scrolling images, Name & Price, Sizes, Quantity +/-, and bottom Select & Buy buttons.
+// Why we use this: Cart Page showing Selected T-shirts properly with "Purchased" and "Purchase" buttons at the bottom.
 @Composable
-fun ProductDetailScreen(
+fun CartScreen(
+    selectedProducts: List<TShirt>,
+    purchasedProducts: List<TShirt>,
+    storage: FirebaseStorage,
+    modifier: Modifier = Modifier,
+    onRemoveSelected: (String) -> Unit,
+    onPurchaseClick: () -> Unit
+) {
+    // Why we use this: Allows toggling between Selected Cart items and already Purchased items when clicking "Purchased".
+    var showPurchasedTab by remember { mutableStateOf(false) }
+
+    // Why we use this: If viewing the Purchased list inside Cart, pressing Back returns to the Selected Cart view first.
+    BackHandler(enabled = showPurchasedTab) {
+        showPurchasedTab = false
+    }
+
+    val displayedItems = if (showPurchasedTab) purchasedProducts else selectedProducts
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color(0xFFFAFAFA))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (showPurchasedTab) "Purchased T-Shirts" else "Selected T-Shirts",
+                fontFamily = NotoSerifFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 19.sp,
+                color = Color(0xFF111111),
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            if (displayedItems.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (showPurchasedTab) "No Purchased T-shirts yet" else "No Selected T-shirts in Cart",
+                        fontFamily = NotoSerifFontFamily,
+                        fontSize = 15.sp,
+                        color = Color(0xFF666666)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(displayedItems, key = { it.id + (if (showPurchasedTab) "_p" else "_s") }) { tshirt ->
+                        CartProductCard(
+                            tshirt = tshirt,
+                            storage = storage,
+                            showRemoveButton = !showPurchasedTab,
+                            onRemoveClick = { onRemoveSelected(tshirt.id) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Why we use this: Bottom row inside Cart Page containing the "Purchased" and "Purchase" buttons.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AnimatedWhiteButton(
+                onClick = { showPurchasedTab = !showPurchasedTab },
+                modifier = Modifier.weight(1f),
+                cornerRadius = 10.dp,
+                isSelected = showPurchasedTab,
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                Text(
+                    text = "Purchased",
+                    fontFamily = NotoSerifFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = Color(0xFF111111)
+                )
+            }
+
+            AnimatedWhiteButton(
+                onClick = {
+                    showPurchasedTab = false
+                    onPurchaseClick()
+                },
+                modifier = Modifier.weight(1f),
+                cornerRadius = 10.dp,
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                Text(
+                    text = "Purchase",
+                    fontFamily = NotoSerifFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = Color(0xFF111111)
+                )
+            }
+        }
+    }
+}
+
+// Why we use this: Displays each selected T-shirt in the Cart Page with a 1024x1024 full-bleed image above Name and Price.
+@Composable
+fun CartProductCard(
     tshirt: TShirt,
     storage: FirebaseStorage,
-    isSelected: Boolean,
-    modifier: Modifier = Modifier,
-    onSelectClick: () -> Unit,
-    onBuyClick: (String, Int) -> Unit
+    showRemoveButton: Boolean,
+    onRemoveClick: () -> Unit
 ) {
+    val context = LocalContext.current
     var resolvedDownloadUrl by remember(tshirt.ImageUrl) { mutableStateOf("") }
-    var selectedSize by remember { mutableStateOf("M") }
-    var quantity by remember { mutableIntStateOf(1) }
-    val sizes = remember { listOf("S", "M", "L", "XL", "XXL") }
 
-    // Why we use this: Resolves the Firebase Storage image URL for the 5-image horizontal pager.
     LaunchedEffect(tshirt.ImageUrl) {
         val rawUrl = tshirt.ImageUrl.trim()
         if (rawUrl.isEmpty()) {
@@ -713,7 +899,110 @@ fun ProductDetailScreen(
         }
     }
 
-    // Why we use this: Controls the 5-image horizontal carousel and auto-moves horizontally every 2.5 seconds.
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, Color(0xFFEEEEEE))
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Why we use this: 1024x1024 (1:1 ratio) image spread edge-to-edge touching the card borders above Name and Price.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .background(Color(0xFFF2F2F2))
+            ) {
+                if (resolvedDownloadUrl.isNotEmpty()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(resolvedDownloadUrl)
+                            .size(1024, 1024)
+                            .build(),
+                        contentDescription = tshirt.Name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = tshirt.Name,
+                        fontFamily = NotoSerifFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = Color(0xFF111111)
+                    )
+                    Text(
+                        text = "${tshirt.Price}",
+                        fontFamily = NotoSerifFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = Color(0xFF111111)
+                    )
+                }
+
+                if (showRemoveButton) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    AnimatedWhiteButton(
+                        onClick = onRemoveClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 10.dp,
+                        contentPadding = PaddingValues(vertical = 9.dp)
+                    ) {
+                        Text(
+                            text = "Selected",
+                            fontFamily = NotoSerifFontFamily,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            color = Color(0xFF111111)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Why we use this: Product Detail Page with 1024x1024 full-bleed 5-image carousel, Name & Price, Size, Quantity, thin separator line, and T-shirt specs.
+@Composable
+fun ProductDetailScreen(
+    tshirt: TShirt,
+    storage: FirebaseStorage,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onSelectClick: () -> Unit,
+    onBuyClick: (String, Int) -> Unit
+) {
+    val context = LocalContext.current
+    var resolvedDownloadUrl by remember(tshirt.ImageUrl) { mutableStateOf("") }
+    var selectedSize by remember { mutableStateOf("M") }
+    var quantity by remember { mutableIntStateOf(1) }
+    val sizes = remember { listOf("S", "M", "L", "XL", "XXL") }
+
+    LaunchedEffect(tshirt.ImageUrl) {
+        val rawUrl = tshirt.ImageUrl.trim()
+        if (rawUrl.isEmpty()) {
+            resolvedDownloadUrl = ""
+        } else if (rawUrl.startsWith("https://") || rawUrl.startsWith("http://")) {
+            resolvedDownloadUrl = rawUrl
+        } else if (rawUrl.startsWith("gs://")) {
+            storage.getReferenceFromUrl(rawUrl).downloadUrl
+                .addOnSuccessListener { uri -> resolvedDownloadUrl = uri.toString() }
+        } else {
+            storage.reference.child(rawUrl).downloadUrl
+                .addOnSuccessListener { uri -> resolvedDownloadUrl = uri.toString() }
+        }
+    }
+
+    // Why we use this: Auto-moves horizontally across 5 images every 2.5 seconds.
     val pagerState = rememberPagerState(pageCount = { 5 })
     LaunchedEffect(pagerState) {
         while (true) {
@@ -739,9 +1028,9 @@ fun ProductDetailScreen(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Why we use this: Card container for the 5 auto-scrolling horizontal product images.
+            // Why we use this: Card where the 1024x1024 (1:1) 5-image carousel spreads all the way to the card borders above Name & Price.
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -749,19 +1038,14 @@ fun ProductDetailScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 border = BorderStroke(1.dp, Color(0xFFEEEEEE))
             ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(300.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .aspectRatio(1f)
                             .background(Color(0xFFF2F2F2))
                     ) { page ->
-                        // Why we use this: Gives each of the 5 slides a distinct framing angle (full view, upper detail, center weave, lower hem, close-up) if using 1 source image.
                         val zoomScale = when (page) {
                             0 -> 1.0f
                             1 -> 1.15f
@@ -779,7 +1063,10 @@ fun ProductDetailScreen(
 
                         if (resolvedDownloadUrl.isNotEmpty()) {
                             AsyncImage(
-                                model = resolvedDownloadUrl,
+                                model = ImageRequest.Builder(context)
+                                    .data(resolvedDownloadUrl)
+                                    .size(1024, 1024)
+                                    .build(),
                                 contentDescription = "${tshirt.Name} view ${page + 1}",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
@@ -799,147 +1086,180 @@ fun ProductDetailScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Why we use this: 5 indicator dots showing the active image in the auto-scrolling 5-image carousel.
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Why we use this: Details section starting immediately below the full-bleed 1024x1024 image.
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        repeat(5) { index ->
-                            val isCurrent = pagerState.currentPage == index
-                            Box(
-                                modifier = Modifier
-                                    .height(6.dp)
-                                    .width(if (isCurrent) 18.dp else 6.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isCurrent) Color(0xFF111111) else Color(0xFFD0D0D0))
-                            )
+                        // Pager indicator dots
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            repeat(5) { index ->
+                                val isCurrent = pagerState.currentPage == index
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 3.dp)
+                                        .height(6.dp)
+                                        .width(if (isCurrent) 18.dp else 6.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isCurrent) Color(0xFF111111) else Color(0xFFD0D0D0))
+                                )
+                            }
                         }
-                    }
-                }
-            }
 
-            // Why we use this: Below the image — Left side T-shirt Name and Right side its primary Price.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = tshirt.Name,
-                    fontFamily = NotoSerifFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = Color(0xFF111111)
-                )
-                Text(
-                    text = "${tshirt.Price}",
-                    fontFamily = NotoSerifFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = Color(0xFF111111)
-                )
-            }
-
-            // Why we use this: Size selector buttons (S, M, L, XL, XXL) in white with animated black borders.
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Size",
-                    fontFamily = NotoSerifFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = Color(0xFF111111),
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    sizes.forEach { sizeOption ->
-                        AnimatedWhiteButton(
-                            onClick = { selectedSize = sizeOption },
-                            modifier = Modifier.weight(1f),
-                            cornerRadius = 10.dp,
-                            isSelected = (selectedSize == sizeOption),
-                            contentPadding = PaddingValues(vertical = 10.dp)
+                        // Left side T-shirt Name and Right side Price
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = sizeOption,
+                                text = tshirt.Name,
                                 fontFamily = NotoSerifFontFamily,
-                                fontWeight = if (selectedSize == sizeOption) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                color = Color(0xFF111111)
+                            )
+                            Text(
+                                text = "${tshirt.Price}",
+                                fontFamily = NotoSerifFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                color = Color(0xFF111111)
+                            )
+                        }
+
+                        // Size buttons
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Size",
+                                fontFamily = NotoSerifFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color(0xFF111111)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                sizes.forEach { sizeOption ->
+                                    AnimatedWhiteButton(
+                                        onClick = { selectedSize = sizeOption },
+                                        modifier = Modifier.weight(1f),
+                                        cornerRadius = 10.dp,
+                                        isSelected = (selectedSize == sizeOption),
+                                        contentPadding = PaddingValues(vertical = 10.dp)
+                                    ) {
+                                        Text(
+                                            text = sizeOption,
+                                            fontFamily = NotoSerifFontFamily,
+                                            fontWeight = if (selectedSize == sizeOption) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 14.sp,
+                                            color = Color(0xFF111111)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Quantity plus minus buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Quantity",
+                                fontFamily = NotoSerifFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color(0xFF111111)
+                            )
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                AnimatedWhiteButton(
+                                    onClick = { if (quantity > 1) quantity-- },
+                                    modifier = Modifier.size(36.dp),
+                                    cornerRadius = 9.dp,
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(
+                                        text = "-",
+                                        fontFamily = NotoSerifFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp,
+                                        color = Color(0xFF111111)
+                                    )
+                                }
+
+                                Text(
+                                    text = "$quantity",
+                                    fontFamily = NotoSerifFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = Color(0xFF111111)
+                                )
+
+                                AnimatedWhiteButton(
+                                    onClick = { quantity++ },
+                                    modifier = Modifier.size(36.dp),
+                                    cornerRadius = 9.dp,
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(
+                                        text = "+",
+                                        fontFamily = NotoSerifFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp,
+                                        color = Color(0xFF111111)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Why we use this: Thin horizontal separator line below Quantity before T-shirt specifications.
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 0.8.dp,
+                            color = Color(0xFFDDDDDD)
+                        )
+
+                        // Why we use this: Displays Material, Colour, and Fabric specifications below the thin separator line.
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Material : ${tshirt.Material}",
+                                fontFamily = NotoSerifFontFamily,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 15.sp,
+                                color = Color(0xFF111111)
+                            )
+                            Text(
+                                text = "Colour : ${tshirt.Colour}",
+                                fontFamily = NotoSerifFontFamily,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 15.sp,
+                                color = Color(0xFF111111)
+                            )
+                            Text(
+                                text = "Fabric : ${tshirt.Fabric}",
+                                fontFamily = NotoSerifFontFamily,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 15.sp,
                                 color = Color(0xFF111111)
                             )
                         }
                     }
                 }
             }
-
-            // Why we use this: Quantity plus (+) and minus (-) buttons with animated black borders.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Quantity",
-                    fontFamily = NotoSerifFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = Color(0xFF111111)
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    AnimatedWhiteButton(
-                        onClick = { if (quantity > 1) quantity-- },
-                        modifier = Modifier.size(38.dp),
-                        cornerRadius = 9.dp,
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text(
-                            text = "-",
-                            fontFamily = NotoSerifFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color(0xFF111111)
-                        )
-                    }
-
-                    Text(
-                        text = "$quantity",
-                        fontFamily = NotoSerifFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = Color(0xFF111111)
-                    )
-
-                    AnimatedWhiteButton(
-                        onClick = { quantity++ },
-                        modifier = Modifier.size(38.dp),
-                        cornerRadius = 9.dp,
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text(
-                            text = "+",
-                            fontFamily = NotoSerifFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color(0xFF111111)
-                        )
-                    }
-                }
-            }
         }
 
-        // Why we use this: Bottom side Select and Buy buttons in curved-corner white rectangles with animated black borders.
+        // Bottom side Select and Buy buttons
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1004,6 +1324,7 @@ fun rememberYouTubeShimmerBrush(): Brush {
     )
 }
 
+// Why we use this: YouTube-style loading skeleton card matching the 1024x1024 full-bleed card layout.
 @Composable
 fun YouTubeSkeletonCard() {
     val shimmerBrush = rememberYouTubeShimmerBrush()
@@ -1015,51 +1336,50 @@ fun YouTubeSkeletonCard() {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = BorderStroke(1.dp, Color(0xFFEEEEEE))
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(230.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .aspectRatio(1f)
                     .background(shimmerBrush)
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(150.dp)
-                        .height(20.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(shimmerBrush)
-                )
-                Box(
-                    modifier = Modifier
-                        .width(55.dp)
-                        .height(20.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(shimmerBrush)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                repeat(3) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .width(150.dp)
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(6.dp))
                             .background(shimmerBrush)
                     )
+                    Box(
+                        modifier = Modifier
+                            .width(55.dp)
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(shimmerBrush)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    repeat(3) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(shimmerBrush)
+                        )
+                    }
                 }
             }
         }
@@ -1130,6 +1450,7 @@ fun RgbSearchBar(
     }
 }
 
+// Why we use this: T-Shirt Card where the 1024x1024 (1:1) image spreads edge-to-edge touching the card borders above Name & Price.
 @Composable
 fun TShirtCard(
     tshirt: TShirt,
@@ -1140,6 +1461,7 @@ fun TShirtCard(
     onBuyClick: () -> Unit,
     onSelectClick: () -> Unit
 ) {
+    val context = LocalContext.current
     var resolvedDownloadUrl by remember(tshirt.ImageUrl) { mutableStateOf("") }
     var isImageRendered by remember(tshirt.ImageUrl) { mutableStateOf(false) }
 
@@ -1166,12 +1488,12 @@ fun TShirtCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = BorderStroke(1.dp, Color(0xFFEEEEEE))
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Why we use this: 1024x1024 (1:1 square) image with zero outer padding so it touches the top, left, and right card borders.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(230.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .aspectRatio(1f)
             ) {
                 if (!isImageRendered) {
                     Box(
@@ -1183,7 +1505,10 @@ fun TShirtCard(
 
                 if (shouldLoadImage && resolvedDownloadUrl.isNotEmpty()) {
                     AsyncImage(
-                        model = resolvedDownloadUrl,
+                        model = ImageRequest.Builder(context)
+                            .data(resolvedDownloadUrl)
+                            .size(1024, 1024)
+                            .build(),
                         contentDescription = tshirt.Name,
                         contentScale = ContentScale.Crop,
                         onSuccess = { isImageRendered = true },
@@ -1192,81 +1517,80 @@ fun TShirtCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Why we use this: Shows T-shirt Name on the left and primary Price on the right in Noto Serif font.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = tshirt.Name,
-                    fontFamily = NotoSerifFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = Color(0xFF111111)
-                )
-                Text(
-                    text = "${tshirt.Price}",
-                    fontFamily = NotoSerifFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = Color(0xFF111111)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Why we use this: Bottom row with View, Buy, and Select buttons styled in white with animated black borders.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                AnimatedWhiteButton(
-                    onClick = onViewClick,
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 10.dp,
-                    contentPadding = PaddingValues(vertical = 10.dp)
+            // Why we use this: Padding starts below the full-bleed image for Name, Price, and Buttons.
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "View",
+                        text = tshirt.Name,
                         fontFamily = NotoSerifFontFamily,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = Color(0xFF111111)
+                    )
+                    Text(
+                        text = "${tshirt.Price}",
+                        fontFamily = NotoSerifFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
                         color = Color(0xFF111111)
                     )
                 }
 
-                AnimatedWhiteButton(
-                    onClick = onBuyClick,
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 10.dp,
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Text(
-                        text = "Buy",
-                        fontFamily = NotoSerifFontFamily,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        color = Color(0xFF111111)
-                    )
-                }
+                Spacer(modifier = Modifier.height(14.dp))
 
-                AnimatedWhiteButton(
-                    onClick = onSelectClick,
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 10.dp,
-                    isSelected = isSelected,
-                    contentPadding = PaddingValues(vertical = 10.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = if (isSelected) "Selected" else "Select",
-                        fontFamily = NotoSerifFontFamily,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        color = Color(0xFF111111)
-                    )
+                    AnimatedWhiteButton(
+                        onClick = onViewClick,
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 10.dp,
+                        contentPadding = PaddingValues(vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = "View",
+                            fontFamily = NotoSerifFontFamily,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            color = Color(0xFF111111)
+                        )
+                    }
+
+                    AnimatedWhiteButton(
+                        onClick = onBuyClick,
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 10.dp,
+                        contentPadding = PaddingValues(vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = "Buy",
+                            fontFamily = NotoSerifFontFamily,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            color = Color(0xFF111111)
+                        )
+                    }
+
+                    AnimatedWhiteButton(
+                        onClick = onSelectClick,
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 10.dp,
+                        isSelected = isSelected,
+                        contentPadding = PaddingValues(vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = if (isSelected) "Selected" else "Select",
+                            fontFamily = NotoSerifFontFamily,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            color = Color(0xFF111111)
+                        )
+                    }
                 }
             }
         }
@@ -1279,17 +1603,21 @@ fun UploadTShirtScreen(
     isUploading: Boolean,
     modifier: Modifier = Modifier,
     onCancel: () -> Unit,
-    onUploadSubmit: (String, Int) -> Unit
+    onUploadSubmit: (String, Int, String, String, String) -> Unit
 ) {
     var tshirtName by remember { mutableStateOf("") }
     var tshirtPriceText by remember { mutableStateOf("") }
+    var tshirtMaterial by remember { mutableStateOf("Cotton") }
+    var tshirtColour by remember { mutableStateOf("Green") }
+    var tshirtFabric by remember { mutableStateOf("220 GSM") }
     val context = LocalContext.current
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(
             text = "Upload T-Shirt",
@@ -1299,13 +1627,17 @@ fun UploadTShirtScreen(
             color = Color(0xFF111111)
         )
 
+        // Why we use this: 1024x1024 (1:1 square) preview of the selected gallery image.
         AsyncImage(
-            model = imageUri,
+            model = ImageRequest.Builder(context)
+                .data(imageUri)
+                .size(1024, 1024)
+                .build(),
             contentDescription = "Selected Image",
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp)
+                .aspectRatio(1f)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFFF2F2F2))
         )
@@ -1327,6 +1659,36 @@ fun UploadTShirtScreen(
             textStyle = TextStyle(fontFamily = NotoSerifFontFamily, fontSize = 15.sp),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        OutlinedTextField(
+            value = tshirtMaterial,
+            onValueChange = { tshirtMaterial = it },
+            label = { Text("Material", fontFamily = NotoSerifFontFamily) },
+            textStyle = TextStyle(fontFamily = NotoSerifFontFamily, fontSize = 15.sp),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        OutlinedTextField(
+            value = tshirtColour,
+            onValueChange = { tshirtColour = it },
+            label = { Text("Colour", fontFamily = NotoSerifFontFamily) },
+            textStyle = TextStyle(fontFamily = NotoSerifFontFamily, fontSize = 15.sp),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        OutlinedTextField(
+            value = tshirtFabric,
+            onValueChange = { tshirtFabric = it },
+            label = { Text("Fabric", fontFamily = NotoSerifFontFamily) },
+            textStyle = TextStyle(fontFamily = NotoSerifFontFamily, fontSize = 15.sp),
+            singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
         )
@@ -1364,7 +1726,13 @@ fun UploadTShirtScreen(
                         if (tshirtName.isBlank() || priceVal == null) {
                             Toast.makeText(context, "Enter Name and Price", Toast.LENGTH_SHORT).show()
                         } else {
-                            onUploadSubmit(tshirtName.trim(), priceVal)
+                            onUploadSubmit(
+                                tshirtName.trim(),
+                                priceVal,
+                                tshirtMaterial.trim().ifEmpty { "Cotton" },
+                                tshirtColour.trim().ifEmpty { "Green" },
+                                tshirtFabric.trim().ifEmpty { "220 GSM" }
+                            )
                         }
                     },
                     modifier = Modifier.weight(1f),
