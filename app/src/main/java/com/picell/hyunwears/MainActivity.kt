@@ -1,5 +1,6 @@
 package com.picell.hyunwears
 
+import android.graphics.Typeface
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -11,10 +12,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -40,6 +45,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -48,6 +54,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.exp
 import kotlin.math.sin
@@ -63,7 +70,7 @@ data class TShirt(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Why we use this: Renders ONLY the light-weight Opening Animation on frame 1 so the app opens in < 0.2s.
+        // Why we use this: Renders ONLY the light-weight Opening Animation on frame 1 so the app opens instantly.
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -77,6 +84,63 @@ class MainActivity : ComponentActivity() {
                 HyunWearsMainEntry()
             }
         }
+    }
+}
+
+// Why we use this: Reusable white button with a thin black border that animates to a thicker dark border when clicked.
+@Composable
+fun AnimatedWhiteButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 10.dp,
+    isSelected: Boolean = false,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+    content: @Composable RowScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    var clickPulse by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // Why we use this: Keeps the thick border visible for 220ms even on a fast finger tap so the animation is always smooth and noticeable.
+    val isActive = isPressed || clickPulse || isSelected
+
+    val borderWidth by animateDpAsState(
+        targetValue = if (isActive) 2.4.dp else 1.dp,
+        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+        label = "buttonBorderWidth"
+    )
+
+    val borderColor by animateColorAsState(
+        targetValue = if (isActive) Color(0xFF000000) else Color(0xFF333333),
+        animationSpec = tween(durationMillis = 160),
+        label = "buttonBorderColor"
+    )
+
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(cornerRadius))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
+                scope.launch {
+                    clickPulse = true
+                    onClick()
+                    delay(220)
+                    clickPulse = false
+                }
+            },
+        shape = RoundedCornerShape(cornerRadius),
+        color = Color.White,
+        border = BorderStroke(borderWidth, borderColor)
+    ) {
+        Row(
+            modifier = Modifier.padding(contentPadding),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            content = content
+        )
     }
 }
 
@@ -125,18 +189,16 @@ fun playOpeningSound() {
     }.start()
 }
 
-// Why we use this: Separates the Opening Screen completely from the Store UI so zero store code runs during launch!
+// Why we use this: Separates the Opening Screen from the Store UI so zero store code runs during cold launch.
 @Composable
 fun HyunWearsMainEntry() {
     var isOpeningFinished by remember { mutableStateOf(false) }
 
     if (!isOpeningFinished) {
-        // Why we use this: Frame 1 ONLY draws this single white screen + "HyunWears" animation for instant startup.
         HyunWearsOpeningScreen(
             onOpeningComplete = { isOpeningFinished = true }
         )
     } else {
-        // Why we use this: Loads the Store Frontend & YouTube Shimmer Cards right after the opening animation finishes.
         HyunWearsApp()
     }
 }
@@ -144,6 +206,7 @@ fun HyunWearsMainEntry() {
 // Why we use this: Instant opening animation scaling up "HyunWears" in Georgia font with opening sound.
 @Composable
 fun HyunWearsOpeningScreen(onOpeningComplete: () -> Unit) {
+    val georgiaFont = remember { FontFamily(Typeface.create("georgia", Typeface.NORMAL)) }
     var startAnim by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -172,9 +235,9 @@ fun HyunWearsOpeningScreen(onOpeningComplete: () -> Unit) {
     ) {
         Text(
             text = "HyunWears",
-            fontFamily = FontFamily.Serif,
+            fontFamily = georgiaFont,
             fontWeight = FontWeight.Bold,
-            fontSize = 36.sp,
+            fontSize = 34.sp,
             color = Color(0xFF111111),
             modifier = Modifier
                 .scale(scale)
@@ -183,7 +246,7 @@ fun HyunWearsOpeningScreen(onOpeningComplete: () -> Unit) {
     }
 }
 
-// Why we use this: Custom lightweight icons so R8 can strip out the entire Material Icons library to shrink the APK.
+// Why we use this: Custom lightweight symbols for Upload, Cart, and Search so APK stays under 2 MB.
 @Composable
 fun rememberUploadIcon(): ImageVector {
     return remember {
@@ -247,8 +310,9 @@ fun rememberSearchIcon(): ImageVector {
 
 @Composable
 fun HyunWearsApp() {
-    val robotoFont = FontFamily.SansSerif
-    val georgiaFont = FontFamily.Serif
+    // Why we use this: Georgia font for HyunWears logo ONLY, and Noto Serif font for the rest of the entire app.
+    val georgiaFont = remember { FontFamily(Typeface.create("georgia", Typeface.NORMAL)) }
+    val notoSerifFont = remember { FontFamily(Typeface.create("noto-serif", Typeface.NORMAL)) }
     val context = LocalContext.current
 
     val catalog = remember { mutableStateListOf<TShirt>() }
@@ -339,12 +403,13 @@ fun HyunWearsApp() {
     Scaffold(
         containerColor = Color(0xFFFAFAFA),
         topBar = {
-            Surface(color = Color.White, shadowElevation = 2.dp) {
+            // Why we use this: Sleek, decreased-height Header with Georgia logo on left and equal-sized symbol buttons on right.
+            Surface(color = Color.White, shadowElevation = 1.dp) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -352,53 +417,46 @@ fun HyunWearsApp() {
                         text = "HyunWears",
                         fontFamily = georgiaFont,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp,
+                        fontSize = 21.sp,
                         color = Color(0xFF111111)
                     )
 
+                    // Why we use this: Small, identical-sized (36dp x 36dp) symbol-only Upload and Cart buttons with animated borders.
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedButton(
+                        AnimatedWhiteButton(
                             onClick = {
                                 galleryLauncher.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             },
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            modifier = Modifier.size(36.dp),
+                            cornerRadius = 9.dp,
+                            contentPadding = PaddingValues(0.dp)
                         ) {
                             Icon(
                                 imageVector = rememberUploadIcon(),
                                 contentDescription = "Upload T-Shirt",
                                 tint = Color(0xFF111111),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
 
-                        OutlinedButton(
+                        AnimatedWhiteButton(
                             onClick = {
                                 Toast.makeText(context, "Cart_Orders items: $cartCount", Toast.LENGTH_SHORT).show()
                             },
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            modifier = Modifier.size(36.dp),
+                            cornerRadius = 9.dp,
+                            contentPadding = PaddingValues(0.dp)
                         ) {
                             Icon(
                                 imageVector = rememberCartIcon(),
                                 contentDescription = "Cart",
                                 tint = Color(0xFF111111),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Cart ($cartCount)",
-                                fontFamily = robotoFont,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 14.sp,
-                                color = Color(0xFF111111)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -410,7 +468,7 @@ fun HyunWearsApp() {
             UploadTShirtScreen(
                 imageUri = selectedGalleryUri!!,
                 isUploading = isUploading,
-                robotoFont = robotoFont,
+                notoSerifFont = notoSerifFont,
                 modifier = Modifier.padding(innerPadding),
                 onCancel = {
                     if (!isUploading) {
@@ -452,68 +510,78 @@ fun HyunWearsApp() {
                 }
             )
         } else {
-            LazyColumn(
+            // Why we use this: Arranges the Search Bar cleanly between the compact Header and the scrollable T-shirt Cards.
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                item {
-                    Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFFAFAFA))
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
                     RgbSearchBar(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it },
                         enableRgbBorder = enableRgbBorder,
-                        robotoFont = robotoFont
+                        notoSerifFont = notoSerifFont
                     )
                 }
 
-                if (isLoading || storageInstance == null) {
-                    // Why we use this: Shows YouTube-style Shimmer Loading Cards while Firebase connects.
-                    items(2) {
-                        YouTubeSkeletonCard()
-                    }
-                } else {
-                    itemsIndexed(filteredList, key = { _, item -> item.id }) { index, tshirt ->
-                        val isSelected = selectedIds.contains(tshirt.id)
-                        val shouldLoadImageNow = (index < 2) || loadRemainingImages
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    if (isLoading || storageInstance == null) {
+                        // Why we use this: Shows YouTube-style Shimmer Loading Cards while Firebase connects.
+                        items(2) {
+                            YouTubeSkeletonCard()
+                        }
+                    } else {
+                        itemsIndexed(filteredList, key = { _, item -> item.id }) { index, tshirt ->
+                            val isSelected = selectedIds.contains(tshirt.id)
+                            val shouldLoadImageNow = (index < 2) || loadRemainingImages
 
-                        TShirtCard(
-                            tshirt = tshirt,
-                            storage = storageInstance!!,
-                            shouldLoadImage = shouldLoadImageNow,
-                            isSelected = isSelected,
-                            robotoFont = robotoFont,
-                            onViewClick = {
-                                Toast.makeText(context, "Viewing ${tshirt.Name}", Toast.LENGTH_SHORT).show()
-                            },
-                            onBuyClick = {
-                                val orderData = mapOf(
-                                    "TshirtId" to tshirt.id,
-                                    "Name" to tshirt.Name,
-                                    "Price" to tshirt.Price,
-                                    "ImageUrl" to tshirt.ImageUrl,
-                                    "Timestamp" to System.currentTimeMillis()
-                                )
-                                dbInstance?.collection("Cart_Orders")
-                                    ?.add(orderData)
-                                    ?.addOnSuccessListener {
-                                        Toast.makeText(context, "Saved ${tshirt.Name} to Cart_Orders!", Toast.LENGTH_SHORT).show()
-                                    }
-                                    ?.addOnFailureListener { e ->
-                                        Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
-                            },
-                            onSelectClick = {
-                                if (isSelected) selectedIds.remove(tshirt.id) else selectedIds.add(tshirt.id)
-                            }
-                        )
+                            TShirtCard(
+                                tshirt = tshirt,
+                                storage = storageInstance!!,
+                                shouldLoadImage = shouldLoadImageNow,
+                                isSelected = isSelected,
+                                notoSerifFont = notoSerifFont,
+                                onViewClick = {
+                                    Toast.makeText(context, "Viewing ${tshirt.Name}", Toast.LENGTH_SHORT).show()
+                                },
+                                onBuyClick = {
+                                    val orderData = mapOf(
+                                        "TshirtId" to tshirt.id,
+                                        "Name" to tshirt.Name,
+                                        "Price" to tshirt.Price,
+                                        "ImageUrl" to tshirt.ImageUrl,
+                                        "Timestamp" to System.currentTimeMillis()
+                                    )
+                                    dbInstance?.collection("Cart_Orders")
+                                        ?.add(orderData)
+                                        ?.addOnSuccessListener {
+                                            Toast.makeText(context, "Saved ${tshirt.Name} to Cart_Orders!", Toast.LENGTH_SHORT).show()
+                                        }
+                                        ?.addOnFailureListener { e ->
+                                            Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                },
+                                onSelectClick = {
+                                    if (isSelected) selectedIds.remove(tshirt.id) else selectedIds.add(tshirt.id)
+                                }
+                            )
+                        }
                     }
-                }
 
-                item {
-                    FooterSection(robotoFont = robotoFont)
+                    item {
+                        FooterSection(notoSerifFont = notoSerifFont)
+                    }
                 }
             }
         }
@@ -611,7 +679,7 @@ fun RgbSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     enableRgbBorder: Boolean,
-    robotoFont: FontFamily
+    notoSerifFont: FontFamily
 ) {
     val borderModifier = if (enableRgbBorder) {
         val rgbGradient = remember {
@@ -619,24 +687,30 @@ fun RgbSearchBar(
                 colors = listOf(Color(0xFFFF0000), Color(0xFF00FF00), Color(0xFF0000FF))
             )
         }
-        Modifier.border(width = 1.5.dp, brush = rgbGradient, shape = RoundedCornerShape(12.dp))
+        Modifier.border(width = 1.2.dp, brush = rgbGradient, shape = RoundedCornerShape(12.dp))
     } else {
         Modifier.border(width = 1.dp, color = Color(0xFFE0E0E0), shape = RoundedCornerShape(12.dp))
     }
 
-    Box(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White, RoundedCornerShape(12.dp))
-            .then(borderModifier)
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .then(borderModifier),
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White,
+        shadowElevation = 1.dp
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Icon(
                 imageVector = rememberSearchIcon(),
                 contentDescription = "Search",
                 tint = Color(0xFF555555),
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(10.dp))
             BasicTextField(
@@ -644,8 +718,8 @@ fun RgbSearchBar(
                 onValueChange = onQueryChange,
                 singleLine = true,
                 textStyle = TextStyle(
-                    fontFamily = robotoFont,
-                    fontSize = 15.sp,
+                    fontFamily = notoSerifFont,
+                    fontSize = 14.sp,
                     color = Color(0xFF111111)
                 ),
                 modifier = Modifier.fillMaxWidth(),
@@ -653,8 +727,8 @@ fun RgbSearchBar(
                     if (query.isEmpty()) {
                         Text(
                             text = "Search T-shirts...",
-                            fontFamily = robotoFont,
-                            fontSize = 15.sp,
+                            fontFamily = notoSerifFont,
+                            fontSize = 14.sp,
                             color = Color(0xFF888888)
                         )
                     }
@@ -671,7 +745,7 @@ fun TShirtCard(
     storage: FirebaseStorage,
     shouldLoadImage: Boolean,
     isSelected: Boolean,
-    robotoFont: FontFamily,
+    notoSerifFont: FontFamily,
     onViewClick: () -> Unit,
     onBuyClick: () -> Unit,
     onSelectClick: () -> Unit
@@ -730,6 +804,7 @@ fun TShirtCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // Why we use this: Shows T-shirt Name on the left and primary Price on the right in Noto Serif font.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -737,68 +812,67 @@ fun TShirtCard(
             ) {
                 Text(
                     text = tshirt.Name,
-                    fontFamily = robotoFont,
+                    fontFamily = notoSerifFont,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     color = Color(0xFF111111)
                 )
                 Text(
                     text = "${tshirt.Price}",
-                    fontFamily = robotoFont,
+                    fontFamily = notoSerifFont,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     color = Color(0xFF111111)
                 )
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // Why we use this: Bottom row with View, Buy, and Select buttons styled in white with animated black borders.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
+                AnimatedWhiteButton(
                     onClick = onViewClick,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, Color(0xFFCCCCCC))
+                    cornerRadius = 10.dp,
+                    contentPadding = PaddingValues(vertical = 10.dp)
                 ) {
                     Text(
                         text = "View",
-                        fontFamily = robotoFont,
+                        fontFamily = notoSerifFont,
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
                         color = Color(0xFF111111)
                     )
                 }
 
-                Button(
+                AnimatedWhiteButton(
                     onClick = onBuyClick,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111111))
+                    cornerRadius = 10.dp,
+                    contentPadding = PaddingValues(vertical = 10.dp)
                 ) {
                     Text(
                         text = "Buy",
-                        fontFamily = robotoFont,
+                        fontFamily = notoSerifFont,
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
-                        color = Color.White
+                        color = Color(0xFF111111)
                     )
                 }
 
-                OutlinedButton(
+                AnimatedWhiteButton(
                     onClick = onSelectClick,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, if (isSelected) Color(0xFF111111) else Color(0xFFCCCCCC)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (isSelected) Color(0xFFEEEEEE) else Color.Transparent
-                    )
+                    cornerRadius = 10.dp,
+                    isSelected = isSelected,
+                    contentPadding = PaddingValues(vertical = 10.dp)
                 ) {
                     Text(
                         text = if (isSelected) "Selected" else "Select",
-                        fontFamily = robotoFont,
+                        fontFamily = notoSerifFont,
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
                         color = Color(0xFF111111)
@@ -813,7 +887,7 @@ fun TShirtCard(
 fun UploadTShirtScreen(
     imageUri: Uri,
     isUploading: Boolean,
-    robotoFont: FontFamily,
+    notoSerifFont: FontFamily,
     modifier: Modifier = Modifier,
     onCancel: () -> Unit,
     onUploadSubmit: (String, Int) -> Unit
@@ -830,7 +904,7 @@ fun UploadTShirtScreen(
     ) {
         Text(
             text = "Upload T-Shirt",
-            fontFamily = robotoFont,
+            fontFamily = notoSerifFont,
             fontWeight = FontWeight.Bold,
             fontSize = 20.sp,
             color = Color(0xFF111111)
@@ -850,7 +924,8 @@ fun UploadTShirtScreen(
         OutlinedTextField(
             value = tshirtName,
             onValueChange = { tshirtName = it },
-            label = { Text("Name", fontFamily = robotoFont) },
+            label = { Text("Name", fontFamily = notoSerifFont) },
+            textStyle = TextStyle(fontFamily = notoSerifFont, fontSize = 15.sp),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
@@ -859,7 +934,8 @@ fun UploadTShirtScreen(
         OutlinedTextField(
             value = tshirtPriceText,
             onValueChange = { tshirtPriceText = it.filter { char -> char.isDigit() } },
-            label = { Text("Price", fontFamily = robotoFont) },
+            label = { Text("Price", fontFamily = notoSerifFont) },
+            textStyle = TextStyle(fontFamily = notoSerifFont, fontSize = 15.sp),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
@@ -878,22 +954,22 @@ fun UploadTShirtScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedButton(
+                AnimatedWhiteButton(
                     onClick = onCancel,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, Color(0xFFCCCCCC))
+                    cornerRadius = 10.dp,
+                    contentPadding = PaddingValues(vertical = 11.dp)
                 ) {
                     Text(
                         text = "Cancel",
-                        fontFamily = robotoFont,
+                        fontFamily = notoSerifFont,
                         fontWeight = FontWeight.Medium,
                         fontSize = 15.sp,
                         color = Color(0xFF111111)
                     )
                 }
 
-                Button(
+                AnimatedWhiteButton(
                     onClick = {
                         val priceVal = tshirtPriceText.toIntOrNull()
                         if (tshirtName.isBlank() || priceVal == null) {
@@ -903,15 +979,15 @@ fun UploadTShirtScreen(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111111))
+                    cornerRadius = 10.dp,
+                    contentPadding = PaddingValues(vertical = 11.dp)
                 ) {
                     Text(
                         text = "Upload",
-                        fontFamily = robotoFont,
+                        fontFamily = notoSerifFont,
                         fontWeight = FontWeight.Medium,
                         fontSize = 15.sp,
-                        color = Color.White
+                        color = Color(0xFF111111)
                     )
                 }
             }
@@ -920,7 +996,7 @@ fun UploadTShirtScreen(
 }
 
 @Composable
-fun FooterSection(robotoFont: FontFamily) {
+fun FooterSection(notoSerifFont: FontFamily) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -929,7 +1005,7 @@ fun FooterSection(robotoFont: FontFamily) {
     ) {
         Text(
             text = "HyunWears by PiCell Company.",
-            fontFamily = robotoFont,
+            fontFamily = notoSerifFont,
             fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
             color = Color(0xFF111111)
